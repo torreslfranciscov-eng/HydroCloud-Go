@@ -9,8 +9,8 @@ services:
       - key: DB_BACKEND
         value: oracle
       - key: ORACLE_USER
-        sync: false
+        value: MYCLOUD_TS
       - key: ORACLE_PASSWORD
         sync: false
       - key: ORACLE_DSN
-        sync: false
+        value: (description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.mx-queretaro-1.oraclecloud.com))(connect_data=(service_name=ga4e34d25e10323_hydroclouddb_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))
