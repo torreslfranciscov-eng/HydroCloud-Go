@@ -4394,7 +4394,22 @@ def _iniciar_monitor_web(port=5555):
     _monitor_app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 # ==================== SCHEDULER ====================
+def _print_public_ip():
+    try:
+        import urllib.request
+        with urllib.request.urlopen("https://api.ipify.org?format=text", timeout=5) as response:
+            public_ip = response.read().decode('utf-8').strip()
+            print(f"\n==================================================")
+            print(f"[NETWORK] 🌐 PUBLIC OUTBOUND IP: {public_ip}")
+            print(f"[NETWORK] 💡 Agrega esta IP a la ACL de tu Oracle Cloud DB!")
+            print(f"==================================================\n")
+            sys.stdout.flush()
+    except Exception as e:
+        print(f"[NETWORK] ⚠️ No se pudo obtener la IP pública: {e}")
+        sys.stdout.flush()
+
 def main():
+    _print_public_ip()
     global _scheduled_dcp_ids
     reload_minutes = config.getint('settings', 'reload_interval_minutes', fallback=5)
 
