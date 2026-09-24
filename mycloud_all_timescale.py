@@ -33,10 +33,19 @@ import re
 import sys
 import io
 # Forzar salida en UTF-8 para evitar UnicodeEncodeError en consola Windows
-if sys.stdout.encoding != 'utf-8':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-if sys.stderr.encoding != 'utf-8':
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+def _print_public_ip():
+    try:
+        import urllib.request
+        with urllib.request.urlopen("https://api.ipify.org?format=text", timeout=5) as response:
+            public_ip = response.read().decode('utf-8').strip()
+            print(f"\n==================================================", flush=True)
+            print(f"[NETWORK] 🌐 PUBLIC OUTBOUND IP: {public_ip}", flush=True)
+            print(f"[NETWORK] 💡 Agrega esta IP a la ACL de tu Oracle Cloud DB!", flush=True)
+            print(f"==================================================\n", flush=True)
+    except Exception as e:
+        print(f"[NETWORK] ⚠️ No se pudo obtener la IP pública: {e}", flush=True)
+
+_print_public_ip()
 
 from flask import Flask, jsonify, request, Response
 
