@@ -1,0 +1,5 @@
+oracledb>=2.0.0
+psycopg2-binary>=2.9.0
+Flask>=3.0.0
+schedule>=1.2.0
+requests>=2.31.0

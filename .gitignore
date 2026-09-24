@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# System / IDE
+.DS_Store
+.vscode/
+.idea/
+
+# HydroCloud temporary state and logs
+migration-report.json
+timescale-migration-report.json
+timescale-migration-state.json
+timescale-timezone-state.json
+*.log
+dds_last/

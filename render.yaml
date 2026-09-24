@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: hydrocloud-goes-service
+    env: docker
+    plan: starter
+    region: oregon
+    healthCheckPath: /api/status
+    envVars:
+      - key: DB_BACKEND
+        value: oracle
+      - key: ORACLE_USER
+        sync: false
+      - key: ORACLE_PASSWORD
+        sync: false
+      - key: ORACLE_DSN
+        sync: false
