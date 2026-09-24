@@ -207,7 +207,7 @@ def _oracle_rewrite_upsert_to_merge(query, params):
             insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
             bind_vals = tuple(params) if isinstance(params, (tuple, list)) else ()
             return (
-                f"MERGE INTO {table} t "
+                f"MERGE /*+ NOPARALLEL */ INTO {table} t "
                 f"USING ({select_part}) src "
                 f"ON ({on_clause}) "
                 f"WHEN MATCHED THEN UPDATE SET {update_clause} "
@@ -268,7 +268,7 @@ def _oracle_rewrite_upsert_to_merge(query, params):
     insert_cols = ', '.join(c.lower() for c in cols)
     insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
     return (
-        f"MERGE INTO {table} t "
+        f"MERGE /*+ NOPARALLEL */ INTO {table} t "
         f"USING (SELECT {', '.join(select_exprs)} FROM dual) src "
         f"ON ({on_clause}) "
         f"WHEN MATCHED THEN UPDATE SET {update_clause} "
@@ -318,21 +318,26 @@ class OracleCursorProxy:
         q = _oracle_rewrite_postgres_query(query.strip())
         if q.upper().startswith('RELEASE SAVEPOINT') or 'DO $$' in q.upper():
             return None
-        if 'ON CONFLICT' in q.upper():
-            rewritten = _oracle_rewrite_upsert_to_merge(q, params)
-            if rewritten is not None:
-                sql, binds = rewritten
-                return self._cursor.execute(sql, binds)
-        try:
-            if '%s' in q:
-                q, binds = _oracle_bind_sql(q, params or ())
-                return self._cursor.execute(q, binds)
-            return self._cursor.execute(q, params or ())
-        except Exception as e:
-            err_str = str(e)
-            if 'ORA-00955' in err_str or 'ORA-01408' in err_str:  # Objeto o índice ya existe
-                return None
-            raise
+        
+        for attempt in range(3):
+            try:
+                if 'ON CONFLICT' in q.upper():
+                    rewritten = _oracle_rewrite_upsert_to_merge(q, params)
+                    if rewritten is not None:
+                        sql, binds = rewritten
+                        return self._cursor.execute(sql, binds)
+                if '%s' in q:
+                    q_bind, binds = _oracle_bind_sql(q, params or ())
+                    return self._cursor.execute(q_bind, binds)
+                return self._cursor.execute(q, params or ())
+            except Exception as e:
+                err_str = str(e)
+                if 'ORA-00955' in err_str or 'ORA-01408' in err_str:  # Objeto o índice ya existe
+                    return None
+                if ('ORA-12801' in err_str or 'ORA-12860' in err_str or 'ORA-00060' in err_str or 'ORA-08103' in err_str) and attempt < 2:
+                    time.sleep(0.3 * (attempt + 1))
+                    continue
+                raise
 
     def fetchall(self):
         return self._cursor.fetchall()
