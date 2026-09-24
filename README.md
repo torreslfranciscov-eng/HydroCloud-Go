@@ -1,29 +1,19 @@
-# DB_ATLAS to Oracle Autonomous Database
+# HydroCloud-Go - Non-Blocking LRGS Satellite & Analytical Service
 
-This workspace contains a one-time, restartable migration utility for moving
-the SQL Server `DB_ATLAS` database into the dedicated Oracle schema
-`HYDROCLOUD`.
+High-performance Go / Python ingestion service for LRGS satellite telemetry data, featuring non-blocking post-processing queue, real-time terminal logging, and Oracle Cloud Autonomous Database support.
 
-The separate `migrate_timescale_to_oracle.py` utility migrates the logical
-schemas of PostgreSQL/TimescaleDB `mycloud_timescale` into Oracle schema
-`MYCLOUD_TS`. PostgreSQL schema names are mapped with prefixes: no prefix for
-`public`, `HM_` for `hydro_model`, and `RF_` for `rain_forecast`.
+## Migration & DB Setup
 
-No credentials are stored in this repository. The utility reads connection
-details from environment variables and writes a validation summary to
-`migration-report.json`.
+This workspace contains a restartable migration utility for moving SQL Server `DB_ATLAS` and PostgreSQL/TimescaleDB `mycloud_timescale` into Oracle schema `MYCLOUD_TS`.
 
-Required variables:
+Required environment variables for deployment (e.g., Render / Docker):
 
-- `SOURCE_HOST`, `SOURCE_PORT`, `SOURCE_DATABASE`, `SOURCE_USER`, `SOURCE_PASSWORD`
-- `TARGET_USER`, `TARGET_PASSWORD`, `TARGET_DSN`
+- `DB_BACKEND`: `oracle` (or `postgres`)
+- `ORACLE_USER`: `MYCLOUD_TS`
+- `ORACLE_PASSWORD`: `<your-oracle-password>`
+- `ORACLE_DSN`: `(description=(retry_count=20)(retry_delay=3)...)`
 
-Set `MIGRATION_RESET=1` only when replacing a partial migration. It drops
-objects owned by the connected target schema, never objects in `ADMIN`.
+## Deployment
 
-## Compatibility notes
+Configured for containerized 24/7 background execution via Dockerfile / `render.yaml`.
 
-- Oracle treats an empty string as `NULL`; empty strings in required text
-  columns are represented by one space and counted in the migration report.
-- `NV_UltimaBitacoraEstacion` projects its three `NCLOB` display fields to
-  2,000 characters because Oracle cannot apply `DISTINCT` directly to LOBs.
