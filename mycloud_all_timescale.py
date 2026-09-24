@@ -1849,6 +1849,21 @@ def _detectar_sospechoso(valores_batch, periodo, acumulado_evento, duracion_even
     return len(motivos_unicos) > 0, motivos_unicos
 
 
+def _make_utc(dt):
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        try:
+            dt = datetime.datetime.fromisoformat(dt)
+        except Exception:
+            return None
+    if isinstance(dt, datetime.datetime):
+        if dt.tzinfo is None:
+            return dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.astimezone(datetime.timezone.utc)
+    return dt
+
+
 def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, conn,
                               timestamp_goes: datetime.datetime, rango_tx: int):
     """
@@ -1868,6 +1883,8 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
                        if s["nombre"].strip().lower() == 'precipitación']
     if not sensores_precip:
         return
+
+    timestamp_goes = _make_utc(timestamp_goes)
 
     try:
         cur = conn.cursor()
@@ -1929,24 +1946,29 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
             """, (id_asignado, sensor_id))
             evento = cur.fetchone()
 
+            evento_inicio = _make_utc(evento[4]) if (evento and evento[4]) else None
+            evento_ultimo_ts = _make_utc(evento[5]) if (evento and evento[5]) else None
+
             # --- Cerrar eventos huérfanos (>4 horas sin datos nuevos) ---
-            if evento and evento[5]:
-                horas_sin_datos = (timestamp_goes - evento[5]).total_seconds() / 3600
+            if evento and evento_ultimo_ts:
+                horas_sin_datos = (timestamp_goes - evento_ultimo_ts).total_seconds() / 3600
                 if horas_sin_datos > 4:
-                    dur = int((evento[5] - evento[4]).total_seconds() / 60)
+                    dur = int((evento_ultimo_ts - evento_inicio).total_seconds() / 60) if (evento_ultimo_ts and evento_inicio) else 0
                     cur.execute("""
                         UPDATE eventos_lluvia SET
                             fin = %s, duracion_minutos = %s, estado = 'finalizado',
                             ultima_actualizacion = NOW()
                         WHERE id = %s
-                    """, (evento[5], dur, evento[0]))
+                    """, (evento_ultimo_ts, dur, evento[0]))
                     print(f"[EVENTO] 🔒 CERRADO huérfano {id_asignado} | {nombre_est} | "
                           f"Sin datos por {horas_sin_datos:.1f}h, dur={dur}min")
                     evento = None  # ya no hay evento activo
+                    evento_inicio = None
+                    evento_ultimo_ts = None
 
             # Determinar desde dónde leer datos nuevos
-            if evento and evento[5]:  # tiene ultimo_ts_procesado
-                desde = evento[5]
+            if evento and evento_ultimo_ts:  # tiene ultimo_ts_procesado
+                desde = evento_ultimo_ts
             else:
                 desde = timestamp_goes - datetime.timedelta(minutes=rango_tx)
 
@@ -1967,7 +1989,7 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
             acumulado = float(evento[1]) if evento else 0.0
             intensidad_max = float(evento[2]) if evento else 0.0
             ceros = int(evento[3]) if evento else 0
-            inicio = evento[4] if evento else None
+            inicio = evento_inicio
 
             # Pre-análisis del lote: cuántas lecturas positivas hay y el total
             lecturas_positivas = [float(v) for _, v in datos if float(v) > 0]
@@ -1977,7 +1999,8 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
             # Colectar valores del lote para análisis posterior
             valores_batch = []
 
-            for ts_dato, valor in datos:
+            for ts_dato_raw, valor in datos:
+                ts_dato = _make_utc(ts_dato_raw)
                 valor = float(valor)
                 valores_batch.append(valor)
 
@@ -2033,10 +2056,11 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
                         ceros += 1
 
             # Actualizar estado final después de procesar todos los datos
-            ultimo_ts = datos[-1][0]
+            ultimo_ts = _make_utc(datos[-1][0])
+            inicio = _make_utc(inicio)
 
             if evento_id is not None:
-                duracion = int((ultimo_ts - inicio).total_seconds() / 60)
+                duracion = int((ultimo_ts - inicio).total_seconds() / 60) if (ultimo_ts and inicio) else 0
 
                 # === VALIDACIÓN EXHAUSTIVA MULTI-CRITERIO ===
                 sospechoso, motivos = _detectar_sospechoso(
