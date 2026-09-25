@@ -4868,21 +4868,28 @@ def _query_dcp_datos_db(dcp_id=None, variable=None, horas=24, limit=500):
         if DB_BACKEND == 'oracle':
             time_filter = "ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(:1, 'HOUR'))"
             params.append(horas)
+            
             if dcp_id:
-                where_clauses.append("dcp_id = :" + str(len(params) + 1))
                 params.append(dcp_id)
+                where_clauses.append(f"dcp_id = :{len(params)}")
+                
             if variable:
-                idx1 = str(len(params) + 1)
-                where_clauses.append(f"(UPPER(tipo) = UPPER(:{idx1}) OR UPPER(variable) = UPPER(:{idx1}))")
                 params.append(variable)
+                params.append(variable)
+                idx1 = len(params) - 1
+                idx2 = len(params)
+                where_clauses.append(f"(UPPER(tipo) = UPPER(:{idx1}) OR UPPER(variable) = UPPER(:{idx2}))")
             
             where_sql = " AND ".join([time_filter] + where_clauses)
+            params.append(limit)
+            limit_idx = len(params)
+            
             sql = f"""
                 SELECT ts, dcp_id, id_asignado, sensor_id, variable, valor, tipo, valido, descripcion
                 FROM dcp_datos
                 WHERE {where_sql}
                 ORDER BY ts DESC
-                FETCH FIRST :{len(params) + 1} ROWS ONLY
+                FETCH FIRST :{limit_idx} ROWS ONLY
             """
             cur.execute(sql, params)
         else:
@@ -4977,25 +4984,25 @@ def api_query_health():
             cur.execute("""
                 SELECT COUNT(DISTINCT dcp_id)
                 FROM ultimas_mediciones
-                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '24' HOUR)
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(24, 'HOUR'))
             """)
             r_act24 = cur.fetchone()
             cur.execute("""
                 SELECT COUNT(DISTINCT dcp_id)
                 FROM ultimas_mediciones
-                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '2' HOUR)
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(2, 'HOUR'))
             """)
             r_act2 = cur.fetchone()
             cur.execute("""
                 SELECT COUNT(*)
                 FROM dcp_datos
-                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '24' HOUR)
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(24, 'HOUR'))
             """)
             r_tx24 = cur.fetchone()
             cur.execute("""
                 SELECT COUNT(*)
                 FROM dcp_datos
-                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '1' HOUR)
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(1, 'HOUR'))
             """)
             r_tx1 = cur.fetchone()
             cur.execute("SELECT SUM(bytes)/1024/1024/1024 FROM user_segments")
