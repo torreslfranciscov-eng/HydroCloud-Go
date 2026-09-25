@@ -160,19 +160,30 @@ os.makedirs(MIS_OUT_DIR, exist_ok=True)
 # Pool de conexiones a TimescaleDB (reutiliza conexiones en lugar de abrir/cerrar cada vez)
 _pg_pool = None
 _pg_pool_lock = threading.Lock()
+_oracle_pool = None
+_oracle_pool_lock = threading.Lock()
+
+
+def _clean_oracle_bind_val(val):
+    if isinstance(val, datetime.datetime):
+        if val.tzinfo is not None:
+            return val.astimezone(datetime.timezone.utc)
+        return val.replace(tzinfo=datetime.timezone.utc)
+    return val
 
 
 def _oracle_bind_sql(sql, params):
     """Convierte placeholders %s a :1, :2, ... para Oracle DB."""
     if not params:
         return sql, ()
-    values = params if isinstance(params, tuple) else (params,)
+    values = params if isinstance(params, (tuple, list)) else (params,)
+    clean_values = [_clean_oracle_bind_val(v) for v in values]
     placeholders = []
     cursor = 0
-    for _ in range(len(values)):
+    for _ in range(len(clean_values)):
         cursor += 1
         placeholders.append(f":{cursor}")
-    return re.sub(r"(?<!%)%s", lambda _m: placeholders.pop(0), sql), values
+    return re.sub(r"(?<!%)%s", lambda _m: placeholders.pop(0), sql), tuple(clean_values)
 
 
 def _oracle_rewrite_upsert_to_merge(query, params):
@@ -205,10 +216,11 @@ def _oracle_rewrite_upsert_to_merge(query, params):
             )
             insert_cols = ', '.join(c.lower() for c in cols)
             insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
-            bind_vals = tuple(params) if isinstance(params, (tuple, list)) else ()
+            bind_vals = tuple(_clean_oracle_bind_val(v) for v in (params if isinstance(params, (tuple, list)) else (params,) if params else ()))
+            select_clean = re.sub(r'^\s*SELECT\b', 'SELECT /*+ NOPARALLEL */', select_part, flags=re.I)
             return (
                 f"MERGE /*+ NOPARALLEL */ INTO {table} t "
-                f"USING ({select_part}) src "
+                f"USING ({select_clean}) src "
                 f"ON ({on_clause}) "
                 f"WHEN MATCHED THEN UPDATE SET {update_clause} "
                 f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_values})"
@@ -267,13 +279,14 @@ def _oracle_rewrite_upsert_to_merge(query, params):
                               for left, right in assignments)
     insert_cols = ', '.join(c.lower() for c in cols)
     insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
+    clean_row_values = tuple(_clean_oracle_bind_val(v) for v in row_values)
     return (
         f"MERGE /*+ NOPARALLEL */ INTO {table} t "
-        f"USING (SELECT {', '.join(select_exprs)} FROM dual) src "
+        f"USING (SELECT /*+ NOPARALLEL */ {', '.join(select_exprs)} FROM dual) src "
         f"ON ({on_clause}) "
         f"WHEN MATCHED THEN UPDATE SET {update_clause} "
         f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_values})"
-    ), tuple(row_values)
+    ), clean_row_values
 
 
 def _oracle_rewrite_postgres_query(sql):
@@ -409,9 +422,36 @@ else:
 
 
 def _oracle_connect():
+    global _oracle_pool
     if not ORACLE_DSN:
         raise RuntimeError("Oracle Cloud DSN no configurado. Revisa [oracle_cloud] en config.ini.")
-    conn = oracledb.connect(user=ORACLE_USER, password=ORACLE_PASSWORD, dsn=ORACLE_DSN)
+    if _oracle_pool is None:
+        with _oracle_pool_lock:
+            if _oracle_pool is None:
+                pool_max = max(2, int(os.environ.get('ORACLE_POOL_MAX', '6')))
+                _oracle_pool = oracledb.create_pool(
+                    user=ORACLE_USER,
+                    password=ORACLE_PASSWORD,
+                    dsn=ORACLE_DSN,
+                    min=1,
+                    max=pool_max,
+                    increment=1,
+                    getmode=oracledb.POOL_GETMODE_WAIT,
+                    wait_timeout=15000,
+                    timeout=300,
+                    ping_interval=60,
+                )
+                print(f"[ORACLE] Pool creado (1-{pool_max} conexiones)")
+    conn = _oracle_pool.acquire()
+    # Las tablas grandes migradas pueden conservar DEGREE paralelo. Los
+    # resúmenes operativos son consultas pequeñas por estación/sensor y deben
+    # ser seriales para no multiplicar TEMP ni procesos PX.
+    cur = conn.cursor()
+    try:
+        cur.execute("ALTER SESSION DISABLE PARALLEL QUERY")
+        cur.execute("ALTER SESSION DISABLE PARALLEL DML")
+    finally:
+        cur.close()
     return OracleConnectionProxy(conn)
 
 
@@ -1937,13 +1977,27 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
             ceros_para_cerrar = max(6, min(12, rango_tx // max(periodo, 1)))
 
             # Buscar evento activo para este sensor
-            cur.execute("""
-                SELECT id, acumulado_mm, intensidad_max_mmh, ceros_consecutivos,
-                       inicio, ultimo_ts_procesado
-                FROM eventos_lluvia
-                WHERE id_asignado = %s AND sensor_id = %s AND estado = 'activo'
-                ORDER BY inicio DESC LIMIT 1
-            """, (id_asignado, sensor_id))
+            if DB_BACKEND == 'oracle':
+                # python-oracledb Thin no puede decodificar valores TSTZ que
+                # fueron almacenados con una región (America/Mexico_City).
+                # SYS_EXTRACT_UTC devuelve TIMESTAMP simple y _make_utc añade
+                # explícitamente tzinfo=UTC.
+                cur.execute("""
+                    SELECT id, acumulado_mm, intensidad_max_mmh, ceros_consecutivos,
+                           CAST(SYS_EXTRACT_UTC(inicio) AS TIMESTAMP) AS inicio,
+                           CAST(SYS_EXTRACT_UTC(ultimo_ts_procesado) AS TIMESTAMP) AS ultimo_ts_procesado
+                    FROM eventos_lluvia
+                    WHERE id_asignado = %s AND sensor_id = %s AND estado = 'activo'
+                    ORDER BY inicio DESC FETCH FIRST 1 ROWS ONLY
+                """, (id_asignado, sensor_id))
+            else:
+                cur.execute("""
+                    SELECT id, acumulado_mm, intensidad_max_mmh, ceros_consecutivos,
+                           inicio, ultimo_ts_procesado
+                    FROM eventos_lluvia
+                    WHERE id_asignado = %s AND sensor_id = %s AND estado = 'activo'
+                    ORDER BY inicio DESC LIMIT 1
+                """, (id_asignado, sensor_id))
             evento = cur.fetchone()
 
             evento_inicio = _make_utc(evento[4]) if (evento and evento[4]) else None
@@ -1973,13 +2027,23 @@ def actualizar_eventos_lluvia(dcp_id: str, id_asignado: str, sensores: list, con
                 desde = timestamp_goes - datetime.timedelta(minutes=rango_tx)
 
             # Obtener datos nuevos cronológicamente
-            cur.execute("""
-                SELECT ts, valor FROM dcp_datos
-                WHERE dcp_id = %s AND sensor_id = %s
-                  AND ts > %s AND ts <= %s
-                  AND valido = true
-                ORDER BY ts ASC
-            """, (dcp_id, sensor_id, desde, timestamp_goes))
+            if DB_BACKEND == 'oracle':
+                cur.execute("""
+                    SELECT CAST(SYS_EXTRACT_UTC(ts) AS TIMESTAMP) AS ts, valor
+                    FROM dcp_datos
+                    WHERE dcp_id = %s AND sensor_id = %s
+                      AND ts > %s AND ts <= %s
+                      AND valido = true
+                    ORDER BY ts ASC
+                """, (dcp_id, sensor_id, desde, timestamp_goes))
+            else:
+                cur.execute("""
+                    SELECT ts, valor FROM dcp_datos
+                    WHERE dcp_id = %s AND sensor_id = %s
+                      AND ts > %s AND ts <= %s
+                      AND valido = true
+                    ORDER BY ts ASC
+                """, (dcp_id, sensor_id, desde, timestamp_goes))
             datos = cur.fetchall()
             if not datos:
                 continue
@@ -2210,6 +2274,9 @@ def actualizar_resumenes_dcp(dcp_id, id_asignado, ts_inicio, ts_fin, timestamp_g
                 cur.execute("RELEASE SAVEPOINT sp_resumen_horario")
             except Exception as e:
                 cur.execute("ROLLBACK TO SAVEPOINT sp_resumen_horario")
+                if 'ORA-65114' in str(e):
+                    print("[WARN] Resúmenes suspendidos: Oracle alcanzó MAX_PDB_STORAGE")
+                    break
 
         # 2. Resúmenes Diarios
         fecha_inicio = (ts_inicio - datetime.timedelta(minutes=1)).date()
@@ -2585,9 +2652,9 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                 cur.execute("SAVEPOINT sp_resumen_horario")
                 if DB_BACKEND == 'oracle':
                     cur.execute("""
-                        MERGE INTO resumen_horario t
+                        MERGE /*+ NO_PARALLEL(t) */ INTO resumen_horario t
                         USING (
-                            SELECT 
+                            SELECT /*+ NO_PARALLEL(dcp_datos) */
                                 TRUNC(ts - (1/1440), 'HH') AS hora,
                                 dcp_id,
                                 sensor_id,
@@ -2649,6 +2716,9 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
             except Exception as e:
                 cur.execute("ROLLBACK TO SAVEPOINT sp_resumen_horario")
                 print(f"[WARN] Resumen horario falló: {e}")
+                if 'ORA-65114' in str(e):
+                    print("[WARN] Se omiten los demás resúmenes horarios de este mensaje: MAX_PDB_STORAGE agotado")
+                    break
         
         # ==================== RESÚMENES DIARIOS ====================
         fecha_inicio = (ts_inicio - datetime.timedelta(minutes=1)).date()
@@ -2672,9 +2742,9 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                     cur.execute("SAVEPOINT sp_resumen_diario")
                     if DB_BACKEND == 'oracle':
                         cur.execute("""
-                            MERGE INTO resumen_diario t
+                            MERGE /*+ NO_PARALLEL(t) */ INTO resumen_diario t
                             USING (
-                                SELECT 
+                                SELECT /*+ NO_PARALLEL(dcp_datos) */
                                     %s AS fecha,
                                     dcp_id,
                                     sensor_id,
@@ -2737,6 +2807,9 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                 except Exception as e:
                     cur.execute("ROLLBACK TO SAVEPOINT sp_resumen_diario")
                     print(f"[WARN] Resumen diario falló para {fecha_resumen}: {e}")
+                    if 'ORA-65114' in str(e):
+                        print("[WARN] Se omiten los demás resúmenes diarios: MAX_PDB_STORAGE agotado")
+                        break
         
         conn.commit()
         print("[PG] ✅ Resúmenes horario y diario actualizados")
