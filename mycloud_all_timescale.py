@@ -476,6 +476,35 @@ def oracle_bulk_upsert(cur, query, rows):
     return 0
 
 
+def _actualizar_ultimas_mediciones_oracle(cur, registros_batch):
+    """Mantiene sincronizada la tabla ultimas_mediciones en Oracle DB con dcp_datos."""
+    if not registros_batch or DB_BACKEND != 'oracle':
+        return
+    try:
+        latest_by_sensor = {}
+        for r in registros_batch:
+            if not isinstance(r, (tuple, list)) or len(r) < 7:
+                continue
+            ts, dcp_id, id_asig, s_id, var, val, tipo_val = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
+            key = (dcp_id, var)
+            if key not in latest_by_sensor or ts >= latest_by_sensor[key][0]:
+                latest_by_sensor[key] = (_clean_oracle_bind_val(ts), dcp_id, var, val, tipo_val)
+        
+        if latest_by_sensor:
+            upsert_rows = list(latest_by_sensor.values())
+            oracle_bulk_upsert(cur, """
+                INSERT INTO ultimas_mediciones
+                (ts, dcp_id, variable, valor, tipo)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (dcp_id, variable) DO UPDATE SET
+                    ts = CASE WHEN EXCLUDED.ts >= ultimas_mediciones.ts THEN EXCLUDED.ts ELSE ultimas_mediciones.ts END,
+                    valor = CASE WHEN EXCLUDED.ts >= ultimas_mediciones.ts THEN EXCLUDED.valor ELSE ultimas_mediciones.valor END,
+                    tipo = CASE WHEN EXCLUDED.ts >= ultimas_mediciones.ts THEN EXCLUDED.tipo ELSE ultimas_mediciones.tipo END
+            """, upsert_rows)
+    except Exception as e:
+        print(f"[WARN] Error actualizando ultimas_mediciones en Oracle: {e}")
+
+
 def get_pg_conn():
     """Obtener conexión del backend activo: TimescaleDB o Oracle Cloud."""
     global _pg_pool
@@ -2615,6 +2644,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                         hora = EXCLUDED.hora,
                         minuto = EXCLUDED.minuto
                 """, registros_batch)
+                _actualizar_ultimas_mediciones_oracle(cur, registros_batch)
             else:
                 execute_values(cur, """
                     INSERT INTO dcp_datos 
