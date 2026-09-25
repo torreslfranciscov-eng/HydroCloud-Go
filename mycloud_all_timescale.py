@@ -186,6 +186,12 @@ def _oracle_bind_sql(sql, params):
     return re.sub(r"(?<!%)%s", lambda _m: placeholders.pop(0), sql), tuple(clean_values)
 
 
+def _clean_merge_update_right(right_expr, table_name):
+    r = re.sub(r'\bEXCLUDED\.', 'src.', right_expr, flags=re.I)
+    r = re.sub(rf'\b{re.escape(table_name)}\.', 't.', r, flags=re.I)
+    return r
+
+
 def _oracle_rewrite_upsert_to_merge(query, params):
     """Reescribe INSERT ... ON CONFLICT ... DO UPDATE en Oracle MERGE."""
     q = query.strip().rstrip(';').strip()
@@ -211,7 +217,7 @@ def _oracle_rewrite_upsert_to_merge(query, params):
             table = re.sub(r'\bpublic\.', '', table, flags=re.I)
             on_clause = ' AND '.join(f"t.{k.lower()} = src.{k.lower()}" for k in keys)
             update_clause = ', '.join(
-                f"t.{left.lower()} = {right.replace('EXCLUDED.', 'src.').replace('excluded.', 'src.') if 'EXCLUDED.' in right.upper() else right}"
+                f"t.{left.lower()} = {_clean_merge_update_right(right, table)}"
                 for left, right in assignments
             )
             insert_cols = ', '.join(c.lower() for c in cols)
@@ -275,7 +281,7 @@ def _oracle_rewrite_upsert_to_merge(query, params):
             select_exprs.append(f"{v_clean} AS {col_clean}")
 
     on_clause = ' AND '.join(f"t.{k.lower()} = src.{k.lower()}" for k in keys)
-    update_clause = ', '.join(f"t.{left.lower()} = {right.replace('EXCLUDED.', 'src.').replace('excluded.', 'src.') if 'EXCLUDED.' in right.upper() else right}"
+    update_clause = ', '.join(f"t.{left.lower()} = {_clean_merge_update_right(right, table)}"
                               for left, right in assignments)
     insert_cols = ', '.join(c.lower() for c in cols)
     insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
@@ -4549,8 +4555,114 @@ def _print_public_ip():
         print(f"[NETWORK] ⚠️ No se pudo obtener la IP pública: {e}")
         sys.stdout.flush()
 
+_last_db_report = 0
+
+def generar_reporte_estado_bd(force=False):
+    """Genera y emite un reporte periódico completo de la salud y métricas de la Base de Datos a la bitácora."""
+    global _last_db_report
+    now = time.time()
+    if not force and (now - _last_db_report < 900):  # Cada 15 minutos
+        return
+    _last_db_report = now
+    
+    conn = get_pg_conn()
+    if not conn:
+        return
+    try:
+        cur = conn.cursor()
+        ts_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        if DB_BACKEND == 'oracle':
+            cur.execute("SELECT SUM(bytes)/1024/1024/1024 FROM user_segments")
+            row_size = cur.fetchone()
+            size_gb = float(row_size[0]) if row_size and row_size[0] else 0.0
+            
+            cur.execute("SELECT COUNT(*), MAX(SYS_EXTRACT_UTC(ts)) FROM dcp_datos")
+            r_dcp = cur.fetchone()
+            dcp_cnt = r_dcp[0] if r_dcp else 0
+            dcp_max_ts = r_dcp[1] if r_dcp else 'N/A'
+            
+            cur.execute("SELECT COUNT(*), MAX(SYS_EXTRACT_UTC(ts)) FROM ultimas_mediciones")
+            r_ult = cur.fetchone()
+            ult_cnt = r_ult[0] if r_ult else 0
+            ult_max_ts = r_ult[1] if r_ult else 'N/A'
+            
+            cur.execute("SELECT COUNT(*) FROM eventos_lluvia WHERE estado = 'activo'")
+            r_evt = cur.fetchone()
+            evt_act = r_evt[0] if r_evt else 0
+            
+            print("\n==================================================", flush=True)
+            print(f"[DB REPORT {ts_now}] 📊 REPORTE PERIÓDICO DE BASE DE DATOS", flush=True)
+            print(f"[DB REPORT] 🗄️ Engine: Oracle Cloud DB ({ORACLE_USER})", flush=True)
+            print(f"[DB REPORT] 💾 Espacio Ocupado: {size_gb:.2f} GB (Cuota OK)", flush=True)
+            print(f"[DB REPORT] 📡 dcp_datos: {dcp_cnt:,} registros | Última TX: {dcp_max_ts}", flush=True)
+            print(f"[DB REPORT] ⏱️ ultimas_mediciones: {ult_cnt:,} series | Última medición: {ult_max_ts}", flush=True)
+            print(f"[DB REPORT] 🌧️ eventos_lluvia: {evt_act} eventos de lluvia activos", flush=True)
+            print("==================================================\n", flush=True)
+        else:
+            cur.execute("SELECT count(*), max(ts) FROM dcp_datos")
+            r_dcp = cur.fetchone()
+            print(f"\n[DB REPORT {ts_now}] 📊 TimescaleDB | dcp_datos: {r_dcp[0]:,} regs | Max TS: {r_dcp[1]}\n", flush=True)
+        cur.close()
+    except Exception as e:
+        print(f"[DB REPORT] ⚠️ Error consultando métricas de BD: {e}", flush=True)
+    finally:
+        release_pg_conn(conn)
+
+
+@_monitor_app.route('/api/db_status')
+def api_db_status():
+    """Endpoint HTTP JSON con el estado de salud y métricas de la Base de Datos."""
+    conn = get_pg_conn()
+    if not conn:
+        return jsonify({"error": "No hay conexión a la BD"}), 500
+    try:
+        cur = conn.cursor()
+        if DB_BACKEND == 'oracle':
+            cur.execute("SELECT SUM(bytes)/1024/1024/1024 FROM user_segments")
+            row_size = cur.fetchone()
+            size_gb = round(float(row_size[0]), 2) if row_size and row_size[0] else 0.0
+            
+            cur.execute("SELECT COUNT(*), MAX(SYS_EXTRACT_UTC(ts)) FROM dcp_datos")
+            r_dcp = cur.fetchone()
+            
+            cur.execute("SELECT COUNT(*), MAX(SYS_EXTRACT_UTC(ts)) FROM ultimas_mediciones")
+            r_ult = cur.fetchone()
+            
+            cur.execute("SELECT COUNT(*) FROM eventos_lluvia WHERE estado = 'activo'")
+            r_evt = cur.fetchone()
+            
+            cur.close()
+            return jsonify({
+                "engine": "Oracle Cloud DB",
+                "usuario": ORACLE_USER,
+                "espacio_ocupado_gb": size_gb,
+                "estado_almacenamiento": "OK" if size_gb < 15 else "ALERTA",
+                "dcp_datos_count": r_dcp[0] if r_dcp else 0,
+                "dcp_datos_max_ts": str(r_dcp[1]) if r_dcp else None,
+                "ultimas_mediciones_count": r_ult[0] if r_ult else 0,
+                "ultimas_mediciones_max_ts": str(r_ult[1]) if r_ult else None,
+                "eventos_lluvia_activos": r_evt[0] if r_evt else 0,
+                "sincronizado": str(r_dcp[1])[:10] == str(r_ult[1])[:10] if (r_dcp and r_ult and r_dcp[1] and r_ult[1]) else True
+            })
+        else:
+            cur.execute("SELECT count(*), max(ts) FROM dcp_datos")
+            r_dcp = cur.fetchone()
+            cur.close()
+            return jsonify({
+                "engine": "TimescaleDB / PostgreSQL",
+                "dcp_datos_count": r_dcp[0] if r_dcp else 0,
+                "dcp_datos_max_ts": str(r_dcp[1]) if r_dcp else None
+            })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_pg_conn(conn)
+
+
 def main():
     _print_public_ip()
+    generar_reporte_estado_bd(force=True)
     global _scheduled_dcp_ids
     reload_minutes = config.getint('settings', 'reload_interval_minutes', fallback=5)
 
@@ -4602,6 +4714,8 @@ def main():
             _last_heartbeat = now
             ts_now = datetime.datetime.now().strftime("%H:%M:%S")
             print(f"[HEARTBEAT {ts_now}] Scheduler activo | Estaciones: {len(ESTACIONES)} | Descargas OK: {_fetch_ok_count} | FALLOS: {_fetch_fail_count}")
+
+        generar_reporte_estado_bd()
 
         time.sleep(10)
 
