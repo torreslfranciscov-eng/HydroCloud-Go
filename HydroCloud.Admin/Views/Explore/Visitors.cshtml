@@ -1,0 +1,5 @@
+@model List<VisitorDay>
+@{ ViewData["Title"]="Visitas al portal"; }
+<h1>Visitas y uso del portal</h1><p>Conteos agregados por día UTC; solo visibles para administradores. Se conservan hasta 400 días.</p>
+<div class="notice">Una visita es una carga de la portada. Recargas y robots pueden contar; estas cifras no representan personas únicas. No se almacenan IP ni identificadores de seguimiento.</div>
+<div class="card table-scroll"><table><thead><tr><th>Día UTC</th><th>Visitas públicas</th><th>Visitas autenticadas</th><th>Consultas exitosas</th><th>Descargas CSV</th></tr></thead><tbody>@foreach(var day in Model) {<tr><td>@day.Date</td><td>@day.PublicVisits</td><td>@day.AuthenticatedVisits</td><td>@day.Queries</td><td>@day.Exports</td></tr>}</tbody></table>@if(Model.Count==0) {<p>Todavía no hay visitas registradas.</p>}</div>

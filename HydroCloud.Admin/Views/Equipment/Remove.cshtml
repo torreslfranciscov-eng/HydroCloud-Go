@@ -1,0 +1,11 @@
+@model EquipmentForm
+@{ ViewData["Title"]="Confirmar baja · "+Model.Page.Module.Title; }
+<a asp-action="Index" asp-route-stationId="@Model.StationId" asp-route-moduleKey="@Model.ModuleKey">← Volver al módulo</a>
+<section class="card login"><p class="eyebrow">@Model.Page.Station.Name · @Model.Page.Station.Code</p><h1>@ViewData["Title"]</h1>
+@if(Model.ModuleKey=="sensores") { <p>El sensor quedará inactivo y no visible. No se borrarán su registro, sus cotas ni las mediciones históricas.</p> }
+else if(Model.Page.Module.SensorScoped) { <p>Esta cota quedará finalizada (FIN=1). Su registro y fechas de vigencia se conservarán.</p> }
+else { <p>Se eliminará esta configuración de @Model.Page.Module.Title de Oracle. Esta operación no tiene deshacer en el portal y puede afectar la adquisición de datos. No se eliminan mediciones históricas.</p> }
+<dl>@foreach(var f in Model.Page.Fields.Where(f=>f.Editable).Take(4)) { <dt>@f.Label</dt><dd>@(Model.Values.GetValueOrDefault(f.Name)??"—")</dd> }</dl><p class="hint">Identificador: @Model.Id</p>
+<form method="post" asp-action="Remove"><input asp-for="StationId" type="hidden"/><input asp-for="ModuleKey" type="hidden"/><input asp-for="Id" type="hidden"/><input asp-for="Token" type="hidden"/>
+<div asp-validation-summary="All" class="validation" role="alert"></div><label asp-for="Confirmation">Escribe @Model.Page.Station.Code para confirmar<input asp-for="Confirmation" autocomplete="off" required/></label>
+<button class="destructive wide">Confirmar baja</button></form></section>

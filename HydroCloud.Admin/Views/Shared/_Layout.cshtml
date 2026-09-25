@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>@ViewData["Title"] · HydroCloud Data Studio</title>
+    <link rel="icon" type="image/jpeg" href="~/favicon.jpg"/>
+    <link rel="stylesheet" href="~/hydro-cyber.css" asp-append-version="true"/>
+    <link rel="stylesheet" href="~/vendor/leaflet/leaflet.css"/>
+    <script src="~/vendor/chart.umd.min.js"></script>
+</head>
+<body>
+<header class="hydro-header">
+    <div class="brand-container">
+        <a asp-controller="Explore" asp-action="Index" style="display:flex;align-items:center;gap:12px;text-decoration:none">
+            <img src="~/hydrocloud_logo.jpg" alt="HydroCloud Studio" class="brand-logo-img"/>
+            <div>
+                <span class="brand-title">HydroCloud <span style="color:var(--cyber-cyan);font-weight:300">Data Studio</span></span>
+                <span class="brand-subtitle">Plataforma de Análisis Hidrometeorológico &middot; .NET 8</span>
+            </div>
+        </a>
+        <span class="live-badge" style="margin-left:16px"><span class="live-pulse-dot"></span> SISTEMA OPERATIVO</span>
+    </div>
+
+    <div class="nav-cyber-links">
+        <a asp-controller="Explore" asp-action="Index" class="nav-cyber-link active">🗺️ Mapa y Consultas</a>
+        @if (User.IsInRole("Administrator"))
+        {
+            <a asp-controller="Stations" asp-action="Index" class="nav-cyber-link">⚙️ Estaciones</a>
+            <a asp-controller="Explore" asp-action="Visitors" class="nav-cyber-link">📊 Auditoría</a>
+        }
+        @if (User.Identity?.IsAuthenticated == true)
+        {
+            <span style="color:var(--text-muted);font-size:0.85rem">👤 @User.Identity.Name</span>
+            <form asp-controller="Account" asp-action="Logout" method="post" style="display:inline">
+                <button type="submit" class="btn-cyber-secondary" style="padding:4px 12px;font-size:0.8rem">Salir</button>
+            </form>
+        }
+        else
+        {
+            <a asp-controller="Account" asp-action="Login" class="btn-cyber-primary" style="padding:6px 14px;font-size:0.82rem">Acceso Histórico</a>
+        }
+    </div>
+</header>
+
+<main class="hydro-main-wrap">
+    @if (TempData["Success"] is string success)
+    {
+        <div style="background:rgba(0,255,157,0.15);border:1px solid var(--cyber-green);color:var(--cyber-green);padding:12px 18px;border-radius:8px;margin-bottom:20px">
+            ✔ @success
+        </div>
+    }
+    @RenderBody()
+</main>
+
+<footer style="text-align:center;padding:24px;border-top:1px solid var(--glass-border);color:var(--text-muted);font-size:0.8rem">
+    HydroCloud Data Studio &middot; Plataforma Independiente .NET 8 &middot; Estándares Hidrológicos WMO / OGC WaterML2
+</footer>
+
+<script src="~/site.js" asp-append-version="true" defer></script>
+</body>
+</html>

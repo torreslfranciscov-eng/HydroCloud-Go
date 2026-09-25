@@ -1,0 +1,25 @@
+@model EquipmentPage
+@{ ViewData["Title"]=$"{Model.Station.Code} · {Model.Module.Title}";
+   var columns=Model.Fields.Where(f=>f.Editable).Take(6).ToList(); }
+<a asp-controller="Stations" asp-action="Index">← Estaciones</a>
+<div class="titlebar"><div><p class="eyebrow">FICHA DE ESTACIÓN · @Model.Station.Code</p><h1>@Model.Station.Name</h1><p>Configuración de comunicaciones, variables e inventario de esta estación.</p></div><a class="button" asp-controller="Stations" asp-action="Edit" asp-route-id="@Model.Station.Id">Datos generales</a></div>
+<nav class="module-tabs" aria-label="Módulos de la estación">
+@foreach(var module in EquipmentModule.All) {
+<a class="@(module.Key==Model.Module.Key?"selected":"")" aria-current="@(module.Key==Model.Module.Key?"page":null)" asp-action="Index" asp-route-stationId="@Model.Station.Id" asp-route-moduleKey="@module.Key">@module.Title <span>@Model.Counts[module.Key]</span></a>
+}
+</nav>
+<section class="card"><div class="titlebar"><div><h2>@Model.Module.Title</h2><p>@Model.Module.Description</p></div><a class="button primary" asp-action="Edit" asp-route-stationId="@Model.Station.Id" asp-route-moduleKey="@Model.Module.Key">+ Nuevo registro</a></div>
+@if(Model.Module.Channel is not null) { <p class="hint">Crear o eliminar una configuración actualiza el indicador de canal de la estación. Los contadores y el estado de transmisión pertenecen al sistema de adquisición.</p> }
+@if(Model.Module.Key=="sensores") { <p class="hint">El tipo y la unidad proceden de TIPOSENSOR y UNIDADMEDIDA. Dar de baja un sensor conserva sus relaciones e históricos.</p> }
+<div class="table-scroll"><table><thead><tr>@foreach(var f in columns) { <th>@f.Label</th> }<th>Acciones</th></tr></thead><tbody>
+@foreach(var row in Model.Rows) {
+<tr>@foreach(var f in columns) {
+ var value=row.Values.GetValueOrDefault(f.Name);
+ var display=Model.Options.TryGetValue(f.Name,out var options)?options.FirstOrDefault(x=>x.Id==value)?.Name??value:f.Boolean?(value=="1"?"Sí":value=="0"?"No":"Sin definir"):value;
+ <td>@(string.IsNullOrEmpty(display)?"—":display)</td>
+}<td class="actions"><a asp-action="Edit" asp-route-stationId="@Model.Station.Id" asp-route-moduleKey="@Model.Module.Key" asp-route-id="@row.Id">Editar</a>
+@if(Model.Module.CanRemove) { <a class="danger" asp-action="Remove" asp-route-stationId="@Model.Station.Id" asp-route-moduleKey="@Model.Module.Key" asp-route-id="@row.Id">@(Model.Module.Key=="sensores"?"Dar de baja":Model.Module.SensorScoped?"Finalizar":"Eliminar configuración")</a> }
+</td></tr>
+}
+@if(Model.Rows.Count==0) { <tr><td colspan="@(columns.Count+1)" class="empty">Esta estación todavía no tiene registros en @Model.Module.Title.</td></tr> }
+</tbody></table></div><p class="hint">@Model.Rows.Count registros · Los cambios se guardan en Oracle HYDROCLOUD.</p></section>

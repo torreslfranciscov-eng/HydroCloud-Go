@@ -1,0 +1,350 @@
+/* ==========================================================================
+   HYDROCLOUD DATA STUDIO - HYDRO-CYBER CONTROL CENTER DESIGN SYSTEM
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Dark Space & Glassmorphism Tokens */
+  --bg-deep-space: #06090e;
+  --bg-card-glass: rgba(13, 19, 31, 0.78);
+  --bg-card-hover: rgba(20, 30, 48, 0.85);
+  --bg-header-glass: rgba(8, 12, 20, 0.90);
+  --glass-blur: blur(16px);
+  --glass-border: rgba(0, 242, 254, 0.18);
+  --glass-border-glow: rgba(0, 242, 254, 0.45);
+
+  /* Hydro-Cyber Palette */
+  --cyber-cyan: #00f2fe;        /* Telemetría activa y precipitaciones */
+  --cyber-blue: #4facfe;        /* Niveles hidrométricos e hidrogramas */
+  --cyber-green: #00ff9d;       /* Estación 100% Operativa */
+  --cyber-yellow: #ffb703;      /* Advertencia de Nivel / Lluvia Intensa */
+  --cyber-red: #ff0055;         /* Alerta Crítica / Desbordamiento / Offline */
+  --cyber-purple: #9d4edd;      /* Voltajes y sensores meteorológicos */
+  --text-primary: #e0e6ed;
+  --text-muted: #8b9bb4;
+  --text-dim: #4d5b70;
+
+  --font-main: 'Outfit', 'Segoe UI', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', monospace;
+
+  --radius-card: 12px;
+  --radius-pill: 30px;
+  --shadow-neon: 0 0 20px rgba(0, 242, 254, 0.15);
+  --shadow-alert: 0 0 20px rgba(255, 0, 85, 0.25);
+}
+
+/* ===== GLOBAL RESETS & SCROLLBAR ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+html, body {
+  background: var(--bg-deep-space);
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #080d14; }
+::-webkit-scrollbar-thumb { background: #1c283c; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--cyber-cyan); }
+
+/* ===== HYDRO-CYBER TOP BAR HEADER ===== */
+header.hydro-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  background: var(--bg-header-glass);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  padding: 12px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+}
+
+.brand-container {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand-logo-img {
+  height: 42px;
+  width: auto;
+  border-radius: 8px;
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+  transition: transform 0.3s ease;
+}
+
+.brand-logo-img:hover {
+  transform: scale(1.04);
+}
+
+.brand-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  background: linear-gradient(135deg, #ffffff 0%, var(--cyber-cyan) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.brand-subtitle {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ===== STATUS BADGES & LIVE DOT ===== */
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid var(--cyber-green);
+  color: var(--cyber-green);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.live-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cyber-green);
+  box-shadow: 0 0 8px var(--cyber-green);
+  animation: pulse-glow 1.8s infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+
+/* ===== NAVIGATION LINKS ===== */
+.nav-cyber-links {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.nav-cyber-link {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: all 0.25s ease;
+}
+
+.nav-cyber-link:hover, .nav-cyber-link.active {
+  color: var(--cyber-cyan);
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.2);
+}
+
+/* ===== MAIN CONTAINER & GRID ===== */
+.hydro-main-wrap {
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.cyber-card {
+  background: var(--bg-card-glass);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.cyber-card:hover {
+  border-color: var(--glass-border-glow);
+  box-shadow: var(--shadow-neon);
+}
+
+.cyber-card-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--cyber-cyan);
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ===== MAP CONTAINER ===== */
+#station-map {
+  height: 480px;
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #1a283c;
+  overflow: hidden;
+}
+
+/* ===== FORM CONTROLS ===== */
+.cyber-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.cyber-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cyber-field label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cyber-select, .cyber-input {
+  background: #0d1420;
+  border: 1px solid #1e2c42;
+  color: var(--text-primary);
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: var(--font-main);
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.cyber-select:focus, .cyber-input:focus {
+  border-color: var(--cyber-cyan);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+}
+
+/* ===== BUTTONS ===== */
+.btn-cyber-primary {
+  background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+  color: #fff;
+  border: none;
+  padding: 10px 22px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-cyber-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 114, 255, 0.4);
+}
+
+.btn-cyber-secondary {
+  background: rgba(0, 255, 157, 0.1);
+  border: 1px solid var(--cyber-green);
+  color: var(--cyber-green);
+  padding: 10px 20px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.btn-cyber-secondary:hover {
+  background: rgba(0, 255, 157, 0.2);
+  transform: translateY(-2px);
+}
+
+/* ===== KPI CARDS GRID ===== */
+.kpi-cyber-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.kpi-card {
+  background: #0a101b;
+  border: 1px solid #162234;
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+  transition: border-color 0.2s ease;
+}
+
+.kpi-card:hover {
+  border-color: var(--cyber-cyan);
+}
+
+.kpi-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.kpi-value {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--cyber-cyan);
+  font-family: var(--font-code);
+}
+
+/* ===== DATA TABLE ===== */
+table.cyber-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #090e17;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+table.cyber-table th {
+  background: #0d1522;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  letter-spacing: 0.5px;
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 2px solid var(--cyber-cyan);
+}
+
+table.cyber-table td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #141e2e;
+  color: var(--text-primary);
+}
+
+table.cyber-table tr:hover td {
+  background: #101928;
+}
+
+.badge-valid {
+  background: rgba(0, 255, 157, 0.15);
+  color: var(--cyber-green);
+  border: 1px solid var(--cyber-green);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+}

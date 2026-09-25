@@ -1,0 +1,4 @@
+@model StationForm
+@{ ViewData["Title"]="Dar de baja"; }
+<section class="card login"><p class="eyebrow">CONFIRMACIÓN DE BAJA</p><h1>@Model.Station.Name</h1><p>La estación dejará de estar activa y visible. Se conservarán sus sensores y datos históricos. Puedes reactivarla desde Editar.</p>
+<form method="post" asp-action="Delete"><input type="hidden" name="id" value="@Model.Station.Id"/><input asp-for="Token" type="hidden"/><div asp-validation-summary="All" class="validation" role="alert"></div><label>Escribe <strong>@Model.Station.Code</strong> para confirmar<input name="confirmation" autocomplete="off" required/></label><div class="form-actions"><button class="destructive">Confirmar baja</button><a asp-action="Index">Cancelar</a></div></form></section>

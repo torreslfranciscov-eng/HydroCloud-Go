@@ -1,0 +1,32 @@
+@model EquipmentForm
+@{ var create=string.IsNullOrEmpty(Model.Id); ViewData["Title"]=$"{(create?"Alta":"Edición")} · {Model.Page.Module.Title}"; }
+<a asp-action="Index" asp-route-stationId="@Model.StationId" asp-route-moduleKey="@Model.ModuleKey">← @Model.Page.Module.Title de @Model.Page.Station.Code</a>
+<div class="titlebar"><div><p class="eyebrow">@Model.Page.Station.Name</p><h1>@ViewData["Title"]</h1><p>@Model.Page.Module.Description Los campos con * son obligatorios.</p></div></div>
+<form method="post" asp-action="Edit" class="card editor">
+<input asp-for="StationId" type="hidden"/><input asp-for="ModuleKey" type="hidden"/><input asp-for="Id" type="hidden"/><input asp-for="Token" type="hidden"/>
+<div asp-validation-summary="All" class="validation" role="alert"></div>
+<div class="grid">
+@foreach(var field in Model.Page.Fields.Where(f=>f.Editable)) {
+ var value=Model.Values.GetValueOrDefault(field.Name); var name=$"Values[{field.Name}]";
+ <label for="field_@field.Name">@field.Label @(field.Required?"*":"")
+ @if(Model.Page.Options.TryGetValue(field.Name,out var options)) {
+ <select id="field_@field.Name" name="@name" required="@(field.Required || field.Name=="IDSENSOR")"><option value="">Sin asignar</option>@foreach(var item in options) { <option value="@item.Id" selected="@(value==item.Id)">@item.Name</option> }</select>
+ } else if(field.Boolean) {
+ <select id="field_@field.Name" name="@name" required="@field.Required">@if(!field.Required) { <option value="" selected="@(string.IsNullOrEmpty(value))">Sin definir</option> }<option value="1" selected="@(value=="1")">Sí</option><option value="0" selected="@(value=="0")">No</option></select>
+ } else if(field.Lob) {
+ <textarea id="field_@field.Name" name="@name" rows="4" maxlength="10000" required="@field.Required">@value</textarea>
+ } else {
+ <input id="field_@field.Name" name="@name" value="@value" type="@(field.Date?"datetime-local":field.Numeric?"number":"text")" step="@(field.Date?"0.001":field.Numeric?"any":null)" maxlength="@(field.Length>0?field.Length:null)" required="@field.Required"/>
+ }
+ @Html.ValidationMessage(name)
+ </label>
+}
+</div>
+@if(!create) {
+<details class="system-fields"><summary>Identificador, auditoría y estado del sistema (solo lectura)</summary><dl>
+@foreach(var field in Model.Page.Fields.Where(f=>!f.Editable)) { <dt>@field.Label</dt><dd>@(Model.Values.GetValueOrDefault(field.Name)??"—")</dd> }
+</dl></details>
+}
+<p class="hint">La estación se fija en el servidor. No se permite trasladar un registro a otra estación. Las fechas de vigencia no convierten zonas horarias.</p>
+<div class="form-actions"><button class="primary">Guardar @Model.Page.Module.Title</button><a asp-action="Index" asp-route-stationId="@Model.StationId" asp-route-moduleKey="@Model.ModuleKey">Cancelar</a></div>
+</form>

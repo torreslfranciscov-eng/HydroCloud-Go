@@ -1,0 +1,4 @@
+@model LoginForm
+@{ ViewData["Title"]="Acceso"; }
+<section class="login card"><p class="eyebrow">ACCESO HYDROCLOUD</p><h1>Bienvenido a HydroCloud</h1><p>Inicia sesión para consultar todo el histórico disponible. Solo el rol administrador puede modificar estaciones y equipos.</p><p><a asp-controller="Explore" asp-action="Index">Continuar sin cuenta · últimos 7 días</a></p>
+<form method="post" asp-action="Login"><div asp-validation-summary="All" class="validation" role="alert"></div><label asp-for="Username"></label><input asp-for="Username" autocomplete="username"/><label asp-for="Password"></label><input asp-for="Password" autocomplete="current-password"/><button class="primary wide">Iniciar sesión</button></form></section>

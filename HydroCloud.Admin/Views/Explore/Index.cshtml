@@ -1,0 +1,183 @@
+@{
+    ViewData["Title"] = "Centro de Comando Hidrometeorológico";
+    ViewData["CompactExplore"] = true;
+    var auth = User.Identity?.IsAuthenticated == true;
+}
+
+<div id="explorer" data-authenticated="@(auth ? "true" : "false")">
+
+    <!-- HERO / TITLE BANNER -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
+        <div>
+            <h1 style="font-size:1.8rem;font-weight:700;color:var(--cyber-cyan);margin:0;display:flex;align-items:center;gap:12px">
+                🗺️ Visor Espacial &amp; Estudio temporal de datos
+            </h1>
+            <p style="color:var(--text-muted);font-size:0.88rem;margin-top:4px">
+                Acceso a telemetría en tiempo real, histórico GOES y análisis multivariable de la red hidrométrica
+            </p>
+        </div>
+        <div>
+            @if (!auth)
+            {
+                <span class="live-badge" style="background:rgba(0,242,254,0.1);border-color:var(--cyber-cyan);color:var(--cyber-cyan)">
+                    🔍 Modo Consulta Libre (Últimos 7 días)
+                </span>
+            }
+            else
+            {
+                <span class="live-badge" style="background:rgba(157,78,221,0.15);border-color:var(--cyber-purple);color:var(--cyber-purple)">
+                    ⚡ Histórico Completo Desbloqueado
+                </span>
+            }
+        </div>
+    </div>
+
+    <!-- SECCIÓN 1: MAPA GIS Y SALUD OPERATIVA -->
+    <section class="cyber-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+            <h2 class="cyber-card-title">
+                🛰️ Ubicación Espacial &amp; Semáforo de Disponibilidad (742 Estaciones)
+            </h2>
+            <div style="display:flex;gap:12px;align-items:center">
+                <label style="font-size:0.8rem;color:var(--text-muted)">Filtrar por Estado:</label>
+                <select id="map-filter" class="cyber-select" style="padding:6px 12px;font-size:0.82rem">
+                    <option value="all">Todas las estaciones</option>
+                    <option value="recent">🟢 Transmisión reciente (≤24 h)</option>
+                    <option value="week">🟡 Datos de 1–7 días</option>
+                    <option value="historical">🔴 Solo histórico (>7 días)</option>
+                    <option value="empty">⚪ Sin mediciones asociadas</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- LEYENDA RÁPIDA DE SALUD -->
+        <div style="display:flex;gap:16px;flex-wrap:wrap;background:#090f18;padding:10px 16px;border-radius:8px;margin-bottom:14px;border:1px solid #162438;font-size:0.8rem">
+            <span>🟢 datos ≤24 h: <b id="count-recent" style="color:var(--cyber-green)">—</b></span>
+            <span>🟡 1–7 días: <b id="count-week" style="color:var(--cyber-yellow)">—</b></span>
+            <span>🔴 >7 días: <b id="count-historical" style="color:var(--cyber-red)">—</b></span>
+            <span>⚪ Sin mediciones: <b id="count-empty" style="color:var(--text-muted)">—</b></span>
+            <span>🔘 Sin verificar: <b id="count-unknown" style="color:var(--text-dim)">—</b></span>
+        </div>
+
+        <div id="station-map" aria-label="Mapa de disponibilidad espacial de estaciones"></div>
+
+        <div style="margin-top:10px;display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-muted)">
+            <span id="map-status" role="status">Cargando mapa interactivo...</span>
+            <span id="signal-status" role="status">Verificando señal GOES...</span>
+        </div>
+    </section>
+
+    <!-- SECCIÓN 2: FORMULARIO DE CONSULTA & PARÁMETROS -->
+    <section class="cyber-card">
+        <h2 class="cyber-card-title">
+            ⚙️ Parámetros de Consulta &amp; Series Hidrometeorológicas
+        </h2>
+
+        <form id="query-form">
+            <div class="cyber-form-grid">
+                <div class="cyber-field">
+                    <label>Estación / Clave DCP</label>
+                    <select id="query-station" class="cyber-select" required>
+                        <option value="">Cargando catálogo de estaciones...</option>
+                    </select>
+                </div>
+                <div class="cyber-field">
+                    <label>Producto Hidrológico</label>
+                    <select id="query-product" class="cyber-select">
+                        @foreach (var p in QueryProduct.All)
+                        {
+                            <option value="@p.Key">@p.Title</option>
+                        }
+                    </select>
+                </div>
+                <div class="cyber-field">
+                    <label>Rango de Tiempo</label>
+                    <select id="query-period" class="cyber-select">
+                        <option value="last7" selected>Últimos 7 días (Automático)</option>
+                        <option value="custom">Rango Personalizado (UTC)</option>
+                    </select>
+                </div>
+                <div class="cyber-field">
+                    <label>Desde (UTC)</label>
+                    <input id="query-start" class="cyber-input" type="datetime-local" step="60" required/>
+                </div>
+                <div class="cyber-field">
+                    <label>Hasta (UTC)</label>
+                    <input id="query-end" class="cyber-input" type="datetime-local" step="60" required/>
+                </div>
+            </div>
+
+            <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:12px">
+                <button id="query-submit" class="btn-cyber-primary" type="submit">
+                    🔍 Consultar Serie Temporal
+                </button>
+                <button id="query-export" class="btn-cyber-secondary" type="button" disabled>
+                    📥 Descargar CSV
+                </button>
+            </div>
+        </form>
+
+        <p id="query-status" role="status" aria-live="polite" style="margin-top:14px;font-size:0.85rem;color:var(--cyber-cyan)"></p>
+    </section>
+
+    <!-- SECCIÓN 3: RESULTADOS, HIDROGRAMA Y TABLA -->
+    <div id="query-results" hidden>
+        <!-- TARJETAS KPI DE RESULTADOS -->
+        <div class="kpi-cyber-grid">
+            <div class="kpi-card">
+                <div class="kpi-label">Total Lecturas</div>
+                <div class="kpi-value" id="kpi-total-obs">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Valor Mínimo</div>
+                <div class="kpi-value" style="color:var(--cyber-blue)" id="kpi-min-val">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Valor Promedio</div>
+                <div class="kpi-value" style="color:var(--text-primary)" id="kpi-avg-val">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Valor Máximo</div>
+                <div class="kpi-value" style="color:var(--cyber-purple)" id="kpi-max-val">—</div>
+            </div>
+            <div class="kpi-card">
+                <div class="kpi-label">Acumulado / Suma</div>
+                <div class="kpi-value" style="color:var(--cyber-yellow)" id="kpi-sum-val">—</div>
+            </div>
+        </div>
+
+        <!-- GRÁFICA HIDROGRAMA -->
+        <section class="cyber-card">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+                <h3 style="color:var(--cyber-cyan);margin:0;font-size:1.05rem">
+                    📈 Hidrograma &amp; Análisis temporal de la Estación
+                </h3>
+                <div style="display:flex;gap:14px">
+                    <label style="font-size:0.8rem;color:var(--text-muted)">Serie:
+                        <select id="chart-series" class="cyber-select" style="padding:4px 10px;font-size:0.8rem"></select>
+                    </label>
+                    <label style="font-size:0.8rem;color:var(--text-muted)">Métrica:
+                        <select id="chart-metric" class="cyber-select" style="padding:4px 10px;font-size:0.8rem"></select>
+                    </label>
+                </div>
+            </div>
+
+            <div style="background:#080e18;border-radius:8px;padding:16px;border:1px solid #142236">
+                <svg id="series-chart" viewBox="0 0 1000 330" role="img" aria-label="Gráfica temporal de telemetría" style="width:100%;height:auto"></svg>
+            </div>
+            <p id="chart-summary" style="margin-top:10px;font-size:0.82rem;color:var(--text-muted)"></p>
+        </section>
+
+        <!-- TABLA DE DATOS -->
+        <section class="cyber-card">
+            <h3 style="color:var(--cyber-cyan);margin-top:0;margin-bottom:14px;font-size:1.05rem">
+                📋 Registro Detallado de Observaciones
+            </h3>
+            <div id="result-table" style="max-height:450px;overflow-y:auto;border-radius:8px"></div>
+        </section>
+    </div>
+
+</div>
+
+<script src="~/vendor/leaflet/leaflet.js" defer></script>
+<script src="~/explore.js" asp-append-version="true" defer></script>
