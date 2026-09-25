@@ -17,3 +17,9 @@ Required environment variables for deployment (e.g., Render / Docker):
 
 Configured for containerized 24/7 background execution via Dockerfile / `render.yaml`.
 
+## Administración web en .NET
+
+El proyecto [HydroCloud.Admin](HydroCloud.Admin/README.md) administra el catálogo
+`HYDROCLOUD.ESTACION` con ASP.NET Core MVC: altas, edición, búsqueda y bajas lógicas.
+Tiene autenticación propia y no cambia el despliegue del colector Python.
+Consulta su README para configurar los secretos, ejecutarlo y publicarlo.

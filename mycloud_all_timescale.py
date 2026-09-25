@@ -3827,6 +3827,7 @@ table.dark-table tr:hover td{background:#161b22!important}
  <!-- GRAFICA movida a tab -->
  <div class="ui top attached inverted tabular menu" style="background:#0d1117;border-color:#21262d">
   <a class="item active" data-tab="stations">&#128225; Estaciones</a>
+  <a class="item" data-tab="query">&#128269; Consulta de Datos</a>
   <a class="item" data-tab="chart">&#128200; Actividad</a>
   <a class="item" data-tab="retries">&#128260; Reintentos</a>
   <a class="item" data-tab="bitacora">&#128203; Bitacora</a>
@@ -3852,6 +3853,114 @@ table.dark-table tr:hover td{background:#161b22!important}
   </div>
   <div style="max-height:500px;overflow-y:auto;border-radius:6px">
    <table class="ui compact small unstackable table dark-table"><thead><tr><th>DCP ID</th><th>Nombre</th><th>ID Asignado</th><th>Min TX</th><th>Rango</th><th>Cuenca</th><th>Estado</th><th>Accion</th></tr></thead><tbody id="stationsBody"></tbody></table>
+  </div>
+ </div>
+ <!-- TAB Consulta de Datos & Salud de la Red -->
+ <div class="ui bottom attached inverted tab segment" data-tab="query" style="background:#1a2332;border-color:#2a3a4a">
+  <!-- Header & Health Summary -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;border-bottom:1px solid #21262d;padding-bottom:10px">
+   <div>
+    <h3 style="margin:0;color:#21ba45;display:flex;align-items:center;gap:8px">&#128269; M&oacute;dulo de Consulta de Datos &amp; Salud de la Red</h3>
+    <span style="color:#6a8a9a;font-size:.8em">Revisa telemetr&iacute;a de sensores, transmisiones GOES y salud operativa en tiempo real</span>
+   </div>
+   <button class="ui tiny teal button" onclick="loadQueryHealth()" style="border-radius:4px">&#8635; Actualizar Salud</button>
+  </div>
+
+  <!-- Tarjetas de Salud de la Red -->
+  <div class="ui four column stackable grid" style="margin-bottom:20px" id="queryHealthGrid">
+   <div class="column"><div class="ui card dark-card fluid" style="padding:14px;text-align:center"><div class="stat-value" id="qhSaludPct">--%</div><div class="stat-label">Salud Red (24h)</div><div class="meta" id="qhActivasSub" style="color:#6a8a9a;font-size:.75em;margin-top:4px">--/-- Estaciones</div></div></div>
+   <div class="column"><div class="ui card dark-card fluid" style="padding:14px;text-align:center"><div class="stat-value" style="color:#58a6ff" id="qhTx24h">--</div><div class="stat-label">Transmisiones (24h)</div><div class="meta" id="qhTx1hSub" style="color:#6a8a9a;font-size:.75em;margin-top:4px">-- en &uacute;ltima 1 hora</div></div></div>
+   <div class="column"><div class="ui card dark-card fluid" style="padding:14px;text-align:center"><div class="stat-value" style="color:#f85149" id="qhInactivas">--</div><div class="stat-label">Sin Transmitir (&gt;24h)</div><div class="meta" style="color:#6a8a9a;font-size:.75em;margin-top:4px">Requieren Revisi&oacute;n</div></div></div>
+   <div class="column"><div class="ui card dark-card fluid" style="padding:14px;text-align:center"><div class="stat-value" style="color:#bc8cff" id="qhStorageGb">-- GB</div><div class="stat-label">Almacenamiento BD</div><div class="meta" id="qhEngineSub" style="color:#6a8a9a;font-size:.75em;margin-top:4px">Oracle Cloud DB</div></div></div>
+  </div>
+
+  <!-- Formulario de Consulta Interactivo -->
+  <div style="background:#0d1117;border:1px solid #21262d;border-radius:8px;padding:16px;margin-bottom:20px">
+   <h4 style="color:#58a6ff;margin-top:0;margin-bottom:12px;font-size:.95em">&#9881; Par&aacute;metros de Consulta de Mediciones</h4>
+   <div class="ui inverted form">
+    <div class="four fields" style="margin-bottom:10px">
+     <div class="field">
+      <label style="color:#8b949e">Estaci&oacute;n / DCP</label>
+      <select id="qEstacion" style="background:#161b22;color:#e0e0e0;border:1px solid #30363d;border-radius:4px;padding:8px">
+       <option value="">Todas las estaciones</option>
+      </select>
+     </div>
+     <div class="field">
+      <label style="color:#8b949e">Variable / Sensor</label>
+      <select id="qVariable" style="background:#161b22;color:#e0e0e0;border:1px solid #30363d;border-radius:4px;padding:8px">
+       <option value="">Todas las variables</option>
+       <option value="LLUVIA">&#127783; LLUVIA (Precipitaci&oacute;n)</option>
+       <option value="NIVEL">&#127754; NIVEL (Hidrom&eacute;trico)</option>
+       <option value="BATERIA">&#128061; BATERIA (Voltaje)</option>
+       <option value="TEMP">&#127777; TEMP (Temperatura)</option>
+       <option value="HUMEDAD">&#128167; HUMEDAD (Humedad Relativa)</option>
+       <option value="PRESION">&#9201; PRESION (Barom&eacute;trica)</option>
+       <option value="VIENTO">&#128168; VIENTO (Velocidad/Dir)</option>
+      </select>
+     </div>
+     <div class="field">
+      <label style="color:#8b949e">Rango de Tiempo</label>
+      <select id="qHoras" style="background:#161b22;color:#e0e0e0;border:1px solid #30363d;border-radius:4px;padding:8px">
+       <option value="6">&Uacute;ltimas 6 horas</option>
+       <option value="12">&Uacute;ltimas 12 horas</option>
+       <option value="24" selected>&Uacute;ltimas 24 horas</option>
+       <option value="72">&Uacute;ltimos 3 d&iacute;as (72h)</option>
+       <option value="168">&Uacute;ltimos 7 d&iacute;as (168h)</option>
+       <option value="360">&Uacute;ltimos 15 d&iacute;as (360h)</option>
+      </select>
+     </div>
+     <div class="field">
+      <label style="color:#8b949e">L&iacute;mite Registros</label>
+      <select id="qLimite" style="background:#161b22;color:#e0e0e0;border:1px solid #30363d;border-radius:4px;padding:8px">
+       <option value="100">100 registros</option>
+       <option value="250">250 registros</option>
+       <option value="500" selected>500 registros</option>
+       <option value="1000">1,000 registros</option>
+       <option value="2000">2,000 registros</option>
+      </select>
+     </div>
+    </div>
+    <div style="display:flex;gap:12px;justify-content:flex-end;align-items:center">
+     <button class="ui green button" onclick="ejecutarConsultaDatos()" style="border-radius:6px;padding:10px 20px">&#128269; Ejecutar Consulta</button>
+     <button class="ui teal button" onclick="exportarConsultaCSV()" style="border-radius:6px;padding:10px 18px">&#128229; Exportar a CSV</button>
+    </div>
+   </div>
+  </div>
+
+  <!-- Tarjetas KPI Resumen de Consulta -->
+  <div style="margin-bottom:16px" id="queryKpiContainer">
+   <div class="ui six column stackable grid">
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">TOTAL LECTURAS</div><div style="color:#21ba45;font-size:1.4em;font-weight:bold" id="kpiCount">--</div></div></div>
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">VALOR M&Iacute;NIMO</div><div style="color:#58a6ff;font-size:1.4em;font-weight:bold" id="kpiMin">--</div></div></div>
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">VALOR PROMEDIO</div><div style="color:#e0e0e0;font-size:1.4em;font-weight:bold" id="kpiAvg">--</div></div></div>
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">VALOR M&Aacute;XIMO</div><div style="color:#bc8cff;font-size:1.4em;font-weight:bold" id="kpiMax">--</div></div></div>
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">SUMA ACUMULADA</div><div style="color:#d29922;font-size:1.4em;font-weight:bold" id="kpiSum">--</div></div></div>
+    <div class="column"><div style="background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:10px;text-align:center"><div style="color:#8b949e;font-size:.7em">&Uacute;LTIMO DATO</div><div style="color:#3fb950;font-size:1.1em;font-weight:bold" id="kpiLast">--</div></div></div>
+   </div>
+  </div>
+
+  <!-- Tabla de Registros -->
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+   <span style="color:#8b949e;font-size:.8em;font-weight:600;text-transform:uppercase" id="queryTableInfo">Mostrando 0 registros</span>
+   <span style="color:#6a8a9a;font-size:.75em">Formato Horario: Local (UTC-6) &amp; GMT</span>
+  </div>
+  <div style="max-height:500px;overflow-y:auto;border-radius:6px">
+   <table class="ui compact small unstackable table dark-table">
+    <thead>
+     <tr>
+      <th>Fecha/Hora Local</th>
+      <th>Estaci&oacute;n ID</th>
+      <th>Nombre Estaci&oacute;n</th>
+      <th>Sensor / Variable</th>
+      <th>Valor Medido</th>
+      <th>Tipo Variable</th>
+      <th>Estado</th>
+     </tr>
+    </thead>
+    <tbody id="queryTableBody">
+     <tr><td colspan="7" style="text-align:center;color:#6a8a9a;padding:20px">Selecciona los par&aacute;metros y haz clic en "Ejecutar Consulta"</td></tr>
+    </tbody>
+   </table>
   </div>
  </div>
  <!-- TAB Reintentos -->
@@ -4166,8 +4275,8 @@ function doFetch(){const id=document.getElementById('fetchDcpId').value.trim(),h
  fetch('/api/fetch/'+id+'?horas='+h,{method:'POST'}).then(r=>r.json()).then(d=>{
   document.getElementById('fetchResult').innerHTML=d.success?'<div class="ui blue message fade-in">&#10004; '+d.message+'</div>':'<div class="ui red message fade-in">&#10008; '+d.error+'</div>'})}
 function toggleScheduler(){fetch('/api/scheduler',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:_isRunning?'pause':'resume'})}).then(r=>r.json()).then(()=>loadStatus())}
-function refreshAll(){loadStatus();const a=document.querySelector('.tabular.menu .item.active');if(a){const t=a.getAttribute('data-tab');if(t==='stations')loadStations();else if(t==='retries')loadRetries()}}
-loadStatus();loadStations();loadRetries();loadBitacora();loadLog();loadConfig();
+function refreshAll(){loadStatus();const a=document.querySelector('.tabular.menu .item.active');if(a){const t=a.getAttribute('data-tab');if(t==='stations')loadStations();else if(t==='retries')loadRetries();else if(t==='query')loadQueryHealth()}}
+loadStatus();loadStations();loadRetries();loadBitacora();loadLog();loadConfig();loadQueryStations();loadQueryHealth();
 setInterval(refreshAll,10000);
 setInterval(()=>{if(document.getElementById('autoRefreshLog')&&document.getElementById('autoRefreshLog').checked){const a=document.querySelector('.tabular.menu .item.active');if(a&&a.getAttribute('data-tab')==='log')loadLog()}},5000);
 setInterval(loadBitacora,30000);
@@ -4195,6 +4304,91 @@ function importAllMis(){document.getElementById('misImportResult').innerHTML='<d
   document.getElementById('misImportResult').innerHTML=d.success?'<div class="ui green message fade-in">&#10004; '+d.message+'</div>':'<div class="ui red message fade-in">&#10008; '+d.error+'</div>';
   setTimeout(loadMisStatus,3000)})}
 loadMisStatus();setInterval(loadMisStatus,30000);
+
+// === QUERY MODULE FUNCTIONS ===
+let _lastQueryRecords = [];
+function loadQueryStations(){
+ fetch('/api/query/stations').then(r=>r.json()).then(d=>{
+  const sel=document.getElementById('qEstacion');
+  if(!sel) return;
+  let h='<option value="">Todas las estaciones</option>';
+  for(const s of d.estaciones){
+   const lbl = s.id_asignado ? `${s.id_asignado} - ${s.nombre} (${s.dcp_id})` : `${s.nombre} (${s.dcp_id})`;
+   h += `<option value="${s.dcp_id}">${esc(lbl)}</option>`;
+  }
+  sel.innerHTML = h;
+ });
+}
+function loadQueryHealth(){
+ fetch('/api/query/health').then(r=>r.json()).then(d=>{
+  if(d.error) return;
+  document.getElementById('qhSaludPct').textContent = d.salud_pct + '%';
+  document.getElementById('qhActivasSub').textContent = `${d.activas_24h} / ${d.total_estaciones} Estaciones`;
+  document.getElementById('qhTx24h').textContent = (d.tx_24h||0).toLocaleString();
+  document.getElementById('qhTx1hSub').textContent = `${(d.tx_1h||0).toLocaleString()} en última 1 hora`;
+  document.getElementById('qhInactivas').textContent = d.inactivas_24h;
+  document.getElementById('qhStorageGb').textContent = (d.gb_usado || 0) + ' GB';
+  document.getElementById('qhEngineSub').textContent = d.engine || 'Oracle Cloud DB';
+ });
+}
+function ejecutarConsultaDatos(){
+ const est = document.getElementById('qEstacion').value;
+ const v = document.getElementById('qVariable').value;
+ const h = document.getElementById('qHoras').value;
+ const lim = document.getElementById('qLimite').value;
+ document.getElementById('queryTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#58a6ff"><div class="ui active inline loader"></div> Consultando datos de las estaciones...</td></tr>';
+ const url = `/api/query/data?dcp_id=${encodeURIComponent(est)}&variable=${encodeURIComponent(v)}&horas=${h}&limit=${lim}`;
+ fetch(url).then(r=>r.json()).then(d=>{
+  if(d.error){
+   document.getElementById('queryTableBody').innerHTML = `<tr><td colspan="7" style="color:#f85149;text-align:center;padding:20px">&#10008; ${esc(d.error)}</td></tr>`;
+   return;
+  }
+  _lastQueryRecords = d.records || [];
+  document.getElementById('kpiCount').textContent = d.kpis.count.toLocaleString();
+  document.getElementById('kpiMin').textContent = d.kpis.min;
+  document.getElementById('kpiAvg').textContent = d.kpis.avg;
+  document.getElementById('kpiMax').textContent = d.kpis.max;
+  document.getElementById('kpiSum').textContent = d.kpis.sum;
+  document.getElementById('kpiLast').textContent = d.kpis.last_val !== '-' ? `${d.kpis.last_val} (${d.kpis.last_ts.substring(11,16)})` : '-';
+  document.getElementById('queryTableInfo').textContent = `Mostrando ${d.records.length} registros (${d.query.variable} / ${d.query.horas}h)`;
+  if(!d.records.length){
+   document.getElementById('queryTableBody').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#6a8a9a;padding:30px">&#9432; No se encontraron registros con los criterios seleccionados</td></tr>';
+   return;
+  }
+  let html = '';
+  for(const r of d.records){
+   const badge = r.valido ? '<span class="ui tiny green label">VÁLIDO</span>' : '<span class="ui tiny red label">INVÁLIDO</span>';
+   const valStr = (r.valor !== null && r.valor !== undefined) ? r.valor.toFixed(2) : '-';
+   html += `<tr class="fade-in">
+    <td><b>${r.ts_local || r.ts}</b> <span style="color:#484f58;font-size:.75em">(${r.ts})</span></td>
+    <td><code>${r.dcp_id}</code></td>
+    <td>${esc(r.nombre)}</td>
+    <td><span style="color:#58a6ff;font-weight:600">${esc(r.sensor_id)}</span> / ${esc(r.variable || r.tipo || '')}</td>
+    <td><b style="color:#21ba45;font-size:1.1em">${valStr}</b></td>
+    <td><span class="ui tiny blue basic label">${esc(r.tipo || 'GENERAL')}</span></td>
+    <td>${badge}</td>
+   </tr>`;
+  }
+  document.getElementById('queryTableBody').innerHTML = html;
+ }).catch(err=>{
+  document.getElementById('queryTableBody').innerHTML = `<tr><td colspan="7" style="color:#f85149;text-align:center;padding:20px">&#10008; Error de red o servidor: ${esc(err)}</td></tr>`;
+ });
+}
+function exportarConsultaCSV(){
+ if(!_lastQueryRecords || !_lastQueryRecords.length){
+  alert('No hay datos para exportar. Ejecuta una consulta primero.');
+  return;
+ }
+ let csv = 'Fecha_Local,Fecha_UTC,DCP_ID,Nombre_Estacion,ID_Asignado,Sensor_ID,Variable,Valor,Tipo,Valido\n';
+ for(const r of _lastQueryRecords){
+  csv += `"${r.ts_local}","${r.ts}","${r.dcp_id}","${(r.nombre||'').replace(/"/g,'""')}","${r.id_asignado}","${r.sensor_id}","${r.variable}",${r.valor},"${r.tipo}",${r.valido}\n`;
+ }
+ const blob = new Blob([csv], {type: 'text/csv;charset=utf-8;'});
+ const link = document.createElement('a');
+ link.href = URL.createObjectURL(blob);
+ link.download = `hydrocloud_consulta_${new Date().toISOString().substring(0,10)}.csv`;
+ link.click();
+}
 </script>
 </body>
 </html>'''
@@ -4658,6 +4852,242 @@ def api_db_status():
         return jsonify({"error": str(e)}), 500
     finally:
         release_pg_conn(conn)
+
+
+# ==================== DATA QUERY & NETWORK HEALTH ENDPOINTS ====================
+def _query_dcp_datos_db(dcp_id=None, variable=None, horas=24, limit=500):
+    """Consulta la tabla dcp_datos soportando Oracle DB y PostgreSQL."""
+    conn = get_pg_conn()
+    if not conn:
+        return "Sin conexión a la Base de Datos", []
+    try:
+        cur = conn.cursor()
+        params = []
+        where_clauses = []
+        
+        if DB_BACKEND == 'oracle':
+            time_filter = "ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - NUMTODSINTERVAL(:1, 'HOUR'))"
+            params.append(horas)
+            if dcp_id:
+                where_clauses.append("dcp_id = :" + str(len(params) + 1))
+                params.append(dcp_id)
+            if variable:
+                idx1 = str(len(params) + 1)
+                where_clauses.append(f"(UPPER(tipo) = UPPER(:{idx1}) OR UPPER(variable) = UPPER(:{idx1}))")
+                params.append(variable)
+            
+            where_sql = " AND ".join([time_filter] + where_clauses)
+            sql = f"""
+                SELECT ts, dcp_id, id_asignado, sensor_id, variable, valor, tipo, valido, descripcion
+                FROM dcp_datos
+                WHERE {where_sql}
+                ORDER BY ts DESC
+                FETCH FIRST :{len(params) + 1} ROWS ONLY
+            """
+            cur.execute(sql, params)
+        else:
+            time_filter = "ts >= NOW() - (%s || ' hours')::INTERVAL"
+            params.append(str(horas))
+            if dcp_id:
+                where_clauses.append("dcp_id = %s")
+                params.append(dcp_id)
+            if variable:
+                where_clauses.append("(UPPER(tipo) = UPPER(%s) OR UPPER(variable) = UPPER(%s))")
+                params.extend([variable, variable])
+            
+            where_sql = " AND ".join([time_filter] + where_clauses)
+            params.append(limit)
+            sql = f"""
+                SELECT ts, dcp_id, id_asignado, sensor_id, variable, valor, tipo, valido, descripcion
+                FROM dcp_datos
+                WHERE {where_sql}
+                ORDER BY ts DESC
+                LIMIT %s
+            """
+            cur.execute(sql, params)
+            
+        rows = cur.fetchall()
+        cur.close()
+        
+        records = []
+        for r in rows:
+            ts_val = r[0]
+            ts_utc_str = ts_val.strftime("%Y-%m-%d %H:%M:%S") if ts_val else ""
+            ts_local_str = ""
+            if ts_val:
+                try:
+                    if hasattr(ts_val, 'tzinfo') and ts_val.tzinfo:
+                        local_dt = ts_val.astimezone(timezone(timedelta(hours=-6)))
+                    else:
+                        local_dt = ts_val - timedelta(hours=6)
+                    ts_local_str = local_dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    ts_local_str = ts_utc_str
+            
+            records.append({
+                "ts": ts_utc_str,
+                "ts_local": ts_local_str,
+                "dcp_id": r[1],
+                "nombre": ESTACIONES.get(r[1], {}).get("nombre") or r[2] or r[1],
+                "id_asignado": r[2] or r[1],
+                "sensor_id": r[3],
+                "variable": r[4],
+                "valor": float(r[5]) if r[5] is not None else None,
+                "tipo": r[6],
+                "valido": int(r[7]) if r[7] is not None else 1,
+                "descripcion": r[8]
+            })
+            
+        return None, records
+    except Exception as e:
+        return str(e), []
+    finally:
+        release_pg_conn(conn)
+
+
+@_monitor_app.route('/api/query/stations')
+def api_query_stations():
+    """Retorna la lista de estaciones y catálogo de variables para el dropdown del cliente."""
+    list_est = []
+    for dcp_id, data in ESTACIONES.items():
+        list_est.append({
+            "dcp_id": dcp_id,
+            "nombre": data.get("nombre", "?"),
+            "id_asignado": data.get("id_asignado", dcp_id),
+            "cuenca": data.get("cuenca", "")
+        })
+    list_est.sort(key=lambda x: x["id_asignado"] or x["dcp_id"])
+    variables = ["LLUVIA", "NIVEL", "BATERIA", "TEMP", "HUMEDAD", "PRESION", "VIENTO", "RADIACION"]
+    return jsonify({
+        "estaciones": list_est,
+        "variables": variables
+    })
+
+
+@_monitor_app.route('/api/query/health')
+def api_query_health():
+    """Resumen de salud operativa de la red de estaciones y almacenamiento."""
+    total_estaciones = len(ESTACIONES)
+    conn = get_pg_conn()
+    if not conn:
+        return jsonify({"error": "Sin conexión a la Base de Datos"}), 500
+    try:
+        cur = conn.cursor()
+        if DB_BACKEND == 'oracle':
+            cur.execute("""
+                SELECT COUNT(DISTINCT dcp_id)
+                FROM ultimas_mediciones
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '24' HOUR)
+            """)
+            r_act24 = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(DISTINCT dcp_id)
+                FROM ultimas_mediciones
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '2' HOUR)
+            """)
+            r_act2 = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM dcp_datos
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '24' HOUR)
+            """)
+            r_tx24 = cur.fetchone()
+            cur.execute("""
+                SELECT COUNT(*)
+                FROM dcp_datos
+                WHERE ts >= SYS_EXTRACT_UTC(SYSTIMESTAMP - INTERVAL '1' HOUR)
+            """)
+            r_tx1 = cur.fetchone()
+            cur.execute("SELECT SUM(bytes)/1024/1024/1024 FROM user_segments")
+            r_sz = cur.fetchone()
+            cur.close()
+            
+            activas_24h = r_act24[0] if r_act24 else 0
+            activas_2h = r_act2[0] if r_act2 else 0
+            tx_24h = r_tx24[0] if r_tx24 else 0
+            tx_1h = r_tx1[0] if r_tx1 else 0
+            gb_usado = round(float(r_sz[0]), 2) if (r_sz and r_sz[0]) else 0.0
+        else:
+            cur.execute("SELECT COUNT(DISTINCT dcp_id) FROM ultimas_mediciones WHERE ts >= NOW() - INTERVAL '24 hours'")
+            r_act24 = cur.fetchone()
+            cur.execute("SELECT COUNT(DISTINCT dcp_id) FROM ultimas_mediciones WHERE ts >= NOW() - INTERVAL '2 hours'")
+            r_act2 = cur.fetchone()
+            cur.execute("SELECT COUNT(*) FROM dcp_datos WHERE ts >= NOW() - INTERVAL '24 hours'")
+            r_tx24 = cur.fetchone()
+            cur.execute("SELECT COUNT(*) FROM dcp_datos WHERE ts >= NOW() - INTERVAL '1 hour'")
+            r_tx1 = cur.fetchone()
+            cur.close()
+            
+            activas_24h = r_act24[0] if r_act24 else 0
+            activas_2h = r_act2[0] if r_act2 else 0
+            tx_24h = r_tx24[0] if r_tx24 else 0
+            tx_1h = r_tx1[0] if r_tx1 else 0
+            gb_usado = 0.0
+
+        salud_pct = round((activas_24h / max(total_estaciones, 1)) * 100, 1)
+        inactivas_24h = max(0, total_estaciones - activas_24h)
+        
+        return jsonify({
+            "engine": "Oracle Cloud DB" if DB_BACKEND == 'oracle' else "TimescaleDB / PostgreSQL",
+            "total_estaciones": total_estaciones,
+            "activas_24h": activas_24h,
+            "activas_2h": activas_2h,
+            "inactivas_24h": inactivas_24h,
+            "salud_pct": salud_pct,
+            "tx_24h": tx_24h,
+            "tx_1h": tx_1h,
+            "gb_usado": gb_usado,
+            "retries_activos": len(_retries)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_pg_conn(conn)
+
+
+@_monitor_app.route('/api/query/data')
+def api_query_data():
+    """Consulta flexible de datos y sensores para una o todas las estaciones."""
+    dcp_id = request.args.get('dcp_id', '').strip()
+    variable = request.args.get('variable', '').strip()
+    horas = request.args.get('horas', 24, type=int)
+    limit = request.args.get('limit', 500, type=int)
+    
+    if limit > 2000:
+        limit = 2000
+    if horas > 720:
+        horas = 720
+        
+    err, records = _query_dcp_datos_db(dcp_id=dcp_id if dcp_id else None,
+                                        variable=variable if variable and variable != 'TODAS' else None,
+                                        horas=horas,
+                                        limit=limit)
+    if err:
+        return jsonify({"error": f"Error consultando BD: {err}"}), 500
+        
+    vals = [r["valor"] for r in records if r["valor"] is not None]
+    
+    kpis = {
+        "count": len(records),
+        "min": round(min(vals), 2) if vals else "-",
+        "avg": round(sum(vals) / len(vals), 2) if vals else "-",
+        "max": round(max(vals), 2) if vals else "-",
+        "sum": round(sum(vals), 2) if vals else "-",
+        "last_ts": records[0]["ts_local"] if records else "-",
+        "last_val": records[0]["valor"] if records else "-"
+    }
+    
+    return jsonify({
+        "status": "ok",
+        "query": {
+            "dcp_id": dcp_id or "TODAS",
+            "variable": variable or "TODAS",
+            "horas": horas,
+            "limit": limit
+        },
+        "kpis": kpis,
+        "records": records
+    })
 
 
 def main():

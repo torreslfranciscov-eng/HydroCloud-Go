@@ -13,6 +13,7 @@ REGION = os.getenv("PG_TIMEZONE_REGION", "America/Mexico_City")
 TECH_KEY = "MIG_REDEF_KEY"
 TECH_PK = "MIG_REDEF_PK"
 USE_ROWID = os.getenv("REDEF_USE_ROWID", "0") == "1"
+PRELOCK = os.getenv("REDEF_PRELOCK", "0") == "1"
 
 
 def main():
@@ -118,7 +119,7 @@ def redefine(conn, cur):
     for column, data_type, _, virtual, _ in columns:
         if virtual == "YES":
             continue
-        if data_type == "TIMESTAMP WITH TIME ZONE":
+        if "WITH TIME ZONE" in data_type:
             expression = (
                 f"CASE WHEN {qi(column)} IS NOT NULL AND "
                 f"EXTRACT(TIMEZONE_HOUR FROM {qi(column)})=0 THEN "
@@ -131,6 +132,11 @@ def redefine(conn, cur):
         mappings.append(expression)
     mapping = ",".join(mappings)
     try:
+        if PRELOCK:
+            cur.execute(
+                f"lock table {qi(TABLE)} in share row exclusive mode wait 600"
+            )
+            print("SHORT STARTUP LOCK ACQUIRED", flush=True)
         print(f"START ONLINE REDEFINITION {TABLE}", flush=True)
         cur.execute(
             """begin dbms_redefinition.start_redef_table(
@@ -148,11 +154,23 @@ def redefine(conn, cur):
             )
             rowid_column = cur.fetchone()
             if rowid_column:
+                try:
+                    cur.execute(
+                        f"create index {qi(('MIG_' + TABLE + '_ROWID')[:128])} "
+                        f"on {qi(INTERIM)} ({qi(rowid_column[0])})"
+                    )
+                    print("ROWID SYNC INDEX CREATED", flush=True)
+                except oracledb.DatabaseError as exc:
+                    if "ORA-01408" not in str(exc):
+                        raise
+                    print("ROWID SYNC INDEX ALREADY PRESENT", flush=True)
+            for stats_table in (TABLE, INTERIM):
                 cur.execute(
-                    f"create index {qi(('MIG_' + TABLE + '_ROWID')[:128])} "
-                    f"on {qi(INTERIM)} ({qi(rowid_column[0])})"
+                    "begin dbms_stats.gather_table_stats(user,:1,"
+                    "estimate_percent=>1,degree=>4,no_invalidate=>false); end;",
+                    (stats_table,),
                 )
-                print("ROWID SYNC INDEX CREATED", flush=True)
+            print("OPTIMIZER STATISTICS REFRESHED", flush=True)
         cur.execute(
             "begin dbms_redefinition.sync_interim_table(user,:1,:2); end;",
             (TABLE, INTERIM),
