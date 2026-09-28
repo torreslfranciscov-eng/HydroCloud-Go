@@ -1171,58 +1171,9 @@ def _ensure_pg_tables():
 
 # ==================== CARGA ESTACIONES ====================
 def load_estaciones_from_oracle():
-    """Carga catálogo de estaciones desde Oracle Cloud (estatus_estaciones/dcp_datos/dcp_headers)."""
-    conn = None
-    try:
-        print("[ORACLE] Cargando catálogo de estaciones desde Oracle Cloud...")
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        
-        # Mapeo dcp_id -> id_asignado desde dcp_datos
-        dcp_to_asignado = {}
-        try:
-            cur.execute("SELECT dcp_id, MAX(id_asignado) FROM dcp_datos GROUP BY dcp_id")
-            for r in cur.fetchall():
-                if r[0]:
-                    dcp_to_asignado[str(r[0]).strip().upper()] = str(r[1]).strip()
-        except Exception:
-            pass
-
-        estaciones = {}
-        cur.execute("""
-            SELECT e.dcp_id, 
-                   NVL(e.rango_transmision, 60) AS rango,
-                   NVL(MOD(EXTRACT(MINUTE FROM h.max_ts), NVL(e.rango_transmision, 60)), 0) AS minuto
-            FROM estatus_estaciones e
-            LEFT JOIN (
-                SELECT dcp_id, MAX(timestamp_msg) AS max_ts
-                FROM dcp_headers
-                WHERE dcp_id IS NOT NULL
-                GROUP BY dcp_id
-            ) h ON e.dcp_id = h.dcp_id
-            WHERE e.dcp_id IS NOT NULL
-        """)
-        for dcp_id, rango, minuto in cur.fetchall():
-            dcp_id = str(dcp_id).strip().upper()
-            id_asignado = dcp_to_asignado.get(dcp_id, dcp_id)
-            estaciones[dcp_id] = {
-                "minuto": int(minuto if minuto is not None else 0),
-                "nombre": id_asignado,
-                "id_asignado": id_asignado,
-                "rango_transmision": int(rango or 60),
-                "decoder": "GS300",
-                "latitud": None,
-                "longitud": None
-            }
-
-        cur.close()
-        print(f"[ORACLE] {len(estaciones)} estaciones cargadas desde Oracle Cloud")
-        return estaciones
-    except Exception as e:
-        print(f"[WARN] Falló carga de estaciones desde Oracle: {e}")
-        return {}
-    finally:
-        release_pg_conn(conn)
+    from gs300_catalog import connect_catalog, load_stations
+    with connect_catalog(config) as connection:
+        return load_stations(connection)
 
 
 def load_estaciones_from_sql():
@@ -1238,7 +1189,7 @@ def load_estaciones_from_sql():
         cursor = conn.cursor()
         
         query = """
-        SELECT [IdSatelital], [Minuto], [Nombre], [IdAsignado], [RangoTransmision], [Decodificador], [Latitud], [Longitud]
+        SELECT [IdSatelital], [Minuto], [Nombre], [IdAsignado], [RangoTransmision], [Decodificador], [Latitud], [Longitud], [PrimeraTransmision], [IntervaloTransmision]
         FROM [dbo].[NV_GoesSGD]
         WHERE [Minuto] IS NOT NULL 
           AND [Minuto] BETWEEN 0 AND 59
@@ -1282,6 +1233,8 @@ def load_estaciones_from_sql():
                 pass
 
             estaciones[dcp_id] = {
+                "primera_transmision": str(row.PrimeraTransmision),
+                "intervalo_transmision": __import__("gs300_catalog").duration_minutes(row.IntervaloTransmision),
                 "minuto": minuto,
                 "nombre": nombre,
                 "id_asignado": id_asignado,
@@ -1314,45 +1267,9 @@ def load_estaciones_from_sql():
 
 # ==================== CARGA CUENCAS / SUBCUENCAS ====================
 def load_sensores_from_oracle():
-    """Carga sensores desde Oracle Cloud (dcp_datos)."""
-    conn = None
-    try:
-        print("[ORACLE] Cargando catálogo de sensores desde Oracle Cloud...")
-        conn = get_pg_conn()
-        cur = conn.cursor()
-        
-        cur.execute("""
-            SELECT id_asignado, sensor_id, MAX(variable), MAX(tipo)
-            FROM dcp_datos
-            WHERE id_asignado IS NOT NULL AND sensor_id IS NOT NULL
-            GROUP BY id_asignado, sensor_id
-        """)
-        rows = cur.fetchall()
-        sensores_por_estacion = {}
-        for ia, sid, var, tipo in rows:
-            ia = str(ia).strip()
-            sid = str(sid).strip()
-            if ia not in sensores_por_estacion:
-                sensores_por_estacion[ia] = []
-            nombre_var = str(var or tipo or sid).strip()
-            sensores_por_estacion[ia].append({
-                "numero_sensor": sid.zfill(4),
-                "nombre": nombre_var,
-                "decimales": 2,
-                "periodo": 60,
-                "valor_minimo": -9999.0,
-                "valor_maximo": 99999.0,
-                "valor_cota": 0.0,
-                "posiciones": []
-            })
-        cur.close()
-        print(f"[ORACLE] Cargados {sum(len(v) for v in sensores_por_estacion.values())} sensores en {len(sensores_por_estacion)} estaciones desde Oracle Cloud")
-        return sensores_por_estacion
-    except Exception as e:
-        print(f"[WARN] Falló carga de sensores desde Oracle: {e}")
-        return {}
-    finally:
-        release_pg_conn(conn)
+    from gs300_catalog import connect_catalog, load_sensors
+    with connect_catalog(config) as connection:
+        return load_sensors(connection)
 
 
 def load_sensores_from_sql():
@@ -1551,61 +1468,17 @@ def load_umbrales_precipitacion():
 
 
 def asignar_posiciones_sensores(sensores_lista, rango_transmision=60):
-    """Asignar posiciones secuenciales por periodo
-    
-    Args:
-        sensores_lista: Lista de sensores a procesar
-        rango_transmision: Cantidad de minutos de datos que trae cada TX (default 60)
-    """
-    sensores_ordenados = sorted(sensores_lista, key=lambda s: s["numero_sensor"])
-    
-    posicion = 0
-    for sensor in sensores_ordenados:
-        periodo = sensor["periodo"]
-        
-        if periodo <= 0:
-            print(f"[WARN] Periodo inválido ({periodo}) para sensor {sensor['numero_sensor']}. Ignorando.")
-            continue
-        
-        if periodo <= rango_transmision:
-            if rango_transmision % periodo != 0:
-                continue
-            valores_por_rango = int(rango_transmision // periodo)
-        else:
-            # Sensor con periodo mayor que rango TX (ej. sensor horario en TX de 15 min): 1 valor
-            valores_por_rango = 1
-        
-        sensor["posiciones"] = list(range(posicion, posicion + valores_por_rango))
-        posicion += valores_por_rango
-    
-    return sensores_ordenados
+    from gs300_catalog import assign_positions
+    try:
+        return assign_positions(sensores_lista, rango_transmision)
+    except ValueError as exc:
+        print(f"[CONFIG RECHAZADA] No se decodificarán estos sensores: {exc}")
+        return []
 
 def hora_concurrente(utc_now: datetime.datetime, periodo) -> datetime.datetime:
-    """Alinear timestamp al múltiplo del periodo (soporta sub-minutos y horas)."""
-    try:
-        p_min = float(periodo)
-    except (ValueError, TypeError):
-        p_min = 60.0
-    if p_min <= 0:
-        p_min = 60.0
-    if p_min < 1.0:
-        # Sub-minuto: alinear por segundos
-        p_sec = int(p_min * 60)
-        p_sec = max(1, p_sec)
-        total_sec = utc_now.minute * 60 + utc_now.second
-        slot_sec = (total_sec // p_sec) * p_sec
-        return utc_now.replace(minute=slot_sec // 60, second=slot_sec % 60, microsecond=0)
-    else:
-        p_int = max(1, int(p_min))
-        if p_int >= 60:
-            h_int = max(1, p_int // 60)
-            slot_h = (utc_now.hour // h_int) * h_int
-            return utc_now.replace(hour=slot_h, minute=0, second=0, microsecond=0)
-        else:
-            slot_m = (utc_now.minute // p_int) * p_int
-            return utc_now.replace(minute=slot_m, second=0, microsecond=0)
+    from telemetry_decoders import align
+    return align(utc_now, periodo)
 
-# ==================== LLUVIA ACUMULADA (24h y periodo actual) ====================
 def actualizar_lluvia_acumulada(dcp_id: str, id_asignado: str, sensores: list, conn):
     """
     Calcula precipitación acumulada en dos periodos:
@@ -2377,19 +2250,27 @@ def insertar_datos_cila(dcp_id: str, id_asignado: str, decoded_cila: dict, range
     """Inserta datos decodificados de CILA en la base de datos."""
     sensores = SENSORES.get(id_asignado)
     if not sensores: return
+    by_code = {s['numero_sensor']: s for s in sensores}
+    from telemetry_decoders import profile
+    aliases = profile(id_asignado).get('channels', {})
+    mapped_codes = [aliases.get(code, code.zfill(4)) for code in decoded_cila]
+    if len(set(mapped_codes)) != len(mapped_codes):
+        raise ValueError('Dos canales textuales apuntan al mismo sensor')
+    if any(aliases.get(code, code.zfill(4)) not in by_code for code in decoded_cila):
+        raise ValueError('Canales textuales sin correspondencia explícita en catálogo')
     conn = get_pg_conn()
     if not conn: return
     try:
         cur = conn.cursor()
         registros_batch = []
         for code, samples in decoded_cila.items():
-            padded_code = code.zfill(4)
+            padded_code = aliases.get(code, code.zfill(4))
             sensor = next((s for s in sensores if s["numero_sensor"] == padded_code), None)
             if not sensor: continue
             for ts_sample, valor_raw in samples:
                 if valor_raw == -32763.0 or valor_raw == -32768.0: continue
-                valor = round(valor_raw / (10 ** sensor["decimales"]), sensor["decimales"])
-                ts = hora_concurrente(ts_sample, sensor["periodo"])
+                valor = float(valor_raw)
+                ts = ts_sample  # Keep the timestamp carried by the channel block.
                 valido = True
                 descripcion = "OK"
                 if "valor_minimo" in sensor and valor < sensor["valor_minimo"]:
@@ -2406,7 +2287,8 @@ def insertar_datos_cila(dcp_id: str, id_asignado: str, decoded_cila: dict, range
                     ts.year, ts.month, ts.day, ts.hour, ts.minute
                 ))
         if registros_batch:
-            execute_values(cur, """
+            writer = (lambda cur, sql, rows, **kw: oracle_bulk_upsert(cur, sql.replace("VALUES %s", "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"), rows)) if DB_BACKEND == "oracle" else execute_values
+            writer(cur, """
                 INSERT INTO dcp_datos
                 (ts, dcp_id, id_asignado, sensor_id, variable, valor, tipo,
                  valido, descripcion, anio, mes, dia, hora, minuto)
@@ -2426,6 +2308,7 @@ def insertar_datos_cila(dcp_id: str, id_asignado: str, decoded_cila: dict, range
     except Exception as e:
         conn.rollback()
         print(f"[ERROR INSERT CILA] {dcp_id}: {e}")
+        raise
     finally:
         release_pg_conn(conn)
 
@@ -2436,23 +2319,9 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
     if not sensores: return
     est_data = ESTACIONES.get(dcp_id, {})
     rango_tx = est_data.get("rango_transmision", 60)
-    sensores_activos = [s for s in sorted(sensores, key=lambda x: x["numero_sensor"]) if s["periodo"] > 0 and rango_tx >= s["periodo"]]
-    used_sensors = set()
-    block_sensor_pairs = []
-    for blk_idx, (interval, raw_vals) in enumerate(ott_blocks):
-        best_sensor, best_score = None, float('inf')
-        for s_idx, s in enumerate(sensores_activos):
-            if s_idx in used_sensors: continue
-            per = s["periodo"]
-            if interval > 0 and (interval / per < 0.1 or interval / per > 10): continue
-            dec = s["decimales"]
-            valid_count = sum(1 for raw in raw_vals if raw != -32763.0 and raw != -32768.0 and (s.get("valor_minimo", -999999) <= round(raw / (10 ** dec), dec) <= s.get("valor_maximo", 999999)))
-            score = -valid_count * 1000 + s_idx
-            if score < best_score:
-                best_score, best_sensor = score, s_idx
-        if best_sensor is not None:
-            used_sensors.add(best_sensor)
-            block_sensor_pairs.append((blk_idx, best_sensor))
+    from telemetry_decoders import ott_sensors
+    sensores_activos = ott_sensors(id_asignado, ott_blocks, sensores, rango_tx)
+    block_sensor_pairs = [(i, i) for i in range(len(ott_blocks))]
     conn = get_pg_conn()
     if not conn: return
     try:
@@ -2509,6 +2378,7 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
     except Exception as e:
         conn.rollback()
         print(f"[ERROR INSERT OTT] {e}")
+        raise
     finally:
         release_pg_conn(conn)
 
@@ -2521,17 +2391,14 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
     if not conn: return
     try:
         cur = conn.cursor()
-        sensores_ord = sorted(sensores, key=lambda s: str(s.get("numero_sensor", "")))
-        if len(valores) <= 4 and len(sensores_ord) > len(valores):
-            sensores_filtrados = [s for s in sensores_ord if int(s.get("periodo", 10) or 10) >= 60] or sensores_ord[len(sensores_ord) - len(valores):]
-        else:
-            sensores_filtrados = [s for s in sensores_ord if int(s.get("periodo", 10) or 10) < 60] or sensores_ord
+        from telemetry_decoders import record_sensors
+        sensores_filtrados = record_sensors(id_asignado, valores, sensores)
         registros_batch = []
         for idx, valor_raw in enumerate(valores):
             if idx >= len(sensores_filtrados): continue
             sensor = sensores_filtrados[idx]
             if valor_raw == -32763.0 or valor_raw == -32768.0: continue
-            valor = round(valor_raw / (10 ** sensor["decimales"]), sensor["decimales"])
+            valor = float(valor_raw)  # Text already contains engineering-unit decimals.
             valido = not ("valor_minimo" in sensor and valor < sensor["valor_minimo"] or "valor_maximo" in sensor and valor > sensor["valor_maximo"])
             ts = timestamp_record
             registros_batch.append((
@@ -2570,6 +2437,7 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
     except Exception as e:
         conn.rollback()
         print(f"[ERROR INSERT REC] {e}")
+        raise
     finally:
         release_pg_conn(conn)
 
@@ -2598,6 +2466,8 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                 if pos >= len(valores):
                     continue
                 valor_raw = valores[pos]
+                if valor_raw in (-32763.0, -32768.0):
+                    continue
                 valor = round(valor_raw / (10 ** sensor["decimales"]), sensor["decimales"])
                 # valor += sensor.get("valor_cota", 0.0)
                 ts = timestamp_goes - datetime.timedelta(minutes=i * sensor["periodo"])
@@ -2936,7 +2806,7 @@ def guardar_header_goes(dcp_id: str, meta: dict, raw_header: bytes = None, raw_p
             meta.get("channel"),
             meta.get("spacecraft"),
             meta.get("uplink"),
-            meta.get("fail"),
+            meta.get("type"),
             raw_message
         ))
         
@@ -2977,115 +2847,13 @@ def ConvertFrom6BitsTo8Bits(binaryDataMsg):
 
 
 def decode_cila_text(payload: bytes, msg_timestamp: datetime.datetime):
-    """Decodifica payload CILA textual.
-    Formato: :CODE period #N val1 val2 ... :CODE period #N val1 ...
-    """
-    try:
-        text = payload.decode('latin-1', errors='replace').strip()
-        if text.startswith('"'): text = text[1:]
-        if text.endswith('"'): text = text[:-1]
-        bloques = [b.strip() for b in text.split(':') if b.strip()]
-        results = {}
-        for bloque in bloques:
-            partes = bloque.split()
-            if not partes: continue
-            code = partes[0].upper()
-            rest = partes[1:]
-            if code == 'NAME': continue
-            if code == 'BL' and len(rest) >= 1:
-                try: results[code] = [(msg_timestamp, float(rest[0]))]
-                except ValueError: pass
-                continue
-            if len(rest) >= 3 and rest[0].isdigit() and rest[1].startswith('#'):
-                try:
-                    period = int(rest[1].replace('#', ''))
-                    vals_str = rest[2:]
-                    latest_ts = hora_concurrente(msg_timestamp, period)
-                    samples = []
-                    for idx, val_s in enumerate(vals_str):
-                        val = -32763.0 if ('//' in val_s or '#' in val_s) else float(val_s)
-                        sample_ts = latest_ts - datetime.timedelta(minutes=idx * period)
-                        samples.append((sample_ts, val))
-                    results[code] = samples
-                except Exception: pass
-        return results
-    except Exception as e:
-        print(f"[DECODE CILA] Error: {e}")
-        return {}
+    from telemetry_decoders import named_records
+    return named_records(payload, msg_timestamp, cila=True)
 
 
 def decode_smn_text(payload: bytes, msg_timestamp: datetime.datetime = None):
-    """Decodifica payload SMN textual (formatos Campbell y flag-based).
-    Retorna lista de (timestamp, [valores])."""
-    try:
-        text = payload.decode('latin-1', errors='replace')
-        if not msg_timestamp:
-            msg_timestamp = datetime.datetime.now(datetime.timezone.utc)
-        elif msg_timestamp.tzinfo is None:
-            msg_timestamp = msg_timestamp.replace(tzinfo=datetime.timezone.utc)
-        results = []
-        # Formato Campbell: tabla time vals
-        pattern_campbell = re.compile(
-            r'(?:^|\s)(?P<table>\d{1,2})\s+(?P<time>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}|\d{2}:\d{2}:\d{2})\s+(?P<vals>[-+0-9.,/#eE]+)'
-        )
-        for match in pattern_campbell.finditer(text):
-            t_str = match.group("time").strip()
-            v_str = match.group("vals").strip()
-            ts = None
-            if len(t_str) == 8 and t_str.count(":") == 2:
-                try:
-                    parts_t = [int(x) for x in t_str.split(":")]
-                    base_date = msg_timestamp.date()
-                    ts = datetime.datetime.combine(base_date, datetime.time(parts_t[0], parts_t[1], parts_t[2], tzinfo=datetime.timezone.utc))
-                    if ts > msg_timestamp + datetime.timedelta(hours=2):
-                        ts -= datetime.timedelta(days=1)
-                except Exception: continue
-            else:
-                try: ts = datetime.datetime.strptime(t_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=datetime.timezone.utc)
-                except Exception: continue
-            if not ts: continue
-            vals_list = []
-            for p in v_str.split(','):
-                p_clean = p.strip()
-                if not p_clean: continue
-                if '//' in p_clean or '#' in p_clean or 'NAN' in p_clean.upper():
-                    vals_list.append(-32763.0)
-                else:
-                    try: vals_list.append(float(p_clean))
-                    except ValueError: vals_list.append(-32763.0)
-            if vals_list: results.append((ts, vals_list))
-        if not results:
-            # Fallback: formato flag-based (2/02/4/04)
-            lines = re.split(r'[\r\n\x04]+', text)
-            for line in lines:
-                line = line.strip()
-                if not line: continue
-                flag = line[:2].strip()
-                if flag in ('2', '02', '4', '04'):
-                    parts = line[2:].split(',')
-                    if not parts: continue
-                    date_cand = parts[0].strip()
-                    ts = None
-                    for fmt, length in [('%Y%m%d%H%M', 12), ('%Y%m%d%H', 10), ('%Y%m%d', 8)]:
-                        if len(date_cand) >= length:
-                            try:
-                                ts = datetime.datetime.strptime(date_cand[:length], fmt).replace(tzinfo=datetime.timezone.utc)
-                                break
-                            except ValueError: continue
-                    if not ts: continue
-                    line_values = []
-                    for p in parts[1:]:
-                        p = p.strip()
-                        if not p: continue
-                        if '//' in p or '#' in p: line_values.append(-32763.0)
-                        else:
-                            try: line_values.append(float(p))
-                            except ValueError: line_values.append(-32763.0)
-                    if line_values: results.append((ts, line_values))
-        return results
-    except Exception as e:
-        print(f"[DECODE SMN] Error: {e}")
-        return []
+    from telemetry_decoders import text_records
+    return text_records(payload, msg_timestamp, "SMN")
 
 
 def decode_gasir_text(payload: bytes):
@@ -3094,7 +2862,7 @@ def decode_gasir_text(payload: bytes):
     Retorna dict {CODE: [valores]}."""
     try:
         text = payload.decode('latin-1', errors='replace').strip()
-        matches = list(re.finditer(r'\b([A-Z]{2,4})\s+(\d{1,2})\s+', text))
+        matches = list(re.finditer(r'\b([A-Z][A-Z0-9]{1,3})\s+(\d{1,4})\s+', text))
         results = {}
         for i, match in enumerate(matches):
             code = match.group(1).upper()
@@ -3117,77 +2885,15 @@ def decode_gasir_text(payload: bytes):
 
 
 def decode_vaisala_text(payload: bytes, msg_timestamp: datetime.datetime):
-    """Decodifica payload VAISALA textual.
-    Formato: HH:MM:SS val1 val2 ... HH:MM:SS val1 val2 ...
-    Retorna lista de (timestamp, [valores])."""
-    try:
-        text = payload.decode('latin-1', errors='replace').strip()
-        matches = list(re.finditer(r'\b(\d{2}:\d{2}:\d{2})\b\s+', text))
-        results = []
-        msg_date = msg_timestamp.date()
-        for i, match in enumerate(matches):
-            h, m, s = map(int, match.group(1).split(':'))
-            ts_sample = datetime.datetime.combine(msg_date, datetime.time(h, m, s), tzinfo=datetime.timezone.utc)
-            if ts_sample > msg_timestamp + datetime.timedelta(minutes=5):
-                ts_sample -= datetime.timedelta(days=1)
-            start_vals = match.end()
-            end_vals = matches[i+1].start() if i+1 < len(matches) else len(text)
-            vals = []
-            for p in text[start_vals:end_vals].strip().split():
-                p = p.strip()
-                if not p: continue
-                if '//' in p or '#' in p: vals.append(-32763.0)
-                else:
-                    try: vals.append(float(p))
-                    except: vals.append(-32763.0)
-            if vals: results.append((ts_sample, vals))
-        return results
-    except Exception as e:
-        print(f"[DECODE VAISALA] Error: {e}")
-        return []
+    from telemetry_decoders import text_records
+    return text_records(payload, msg_timestamp, "VAISALA")
 
 
 def decode_ott_binary(payload, dt_transmition_time):
-    """Decodifica el payload binario de OTT / Sutron.
-    El payload viene como texto pseudo-binario (6 bits por byte),
-    se convierte a 8 bits y luego se parsean bloques (interval, samples, values)."""
-    try:
-        if not payload: return []
-        payload_bytes = payload if isinstance(payload, bytes) else payload.encode('latin-1', errors='replace')
-        if isinstance(payload_bytes, bytes) and len(payload_bytes) > 1:
-            quote_idx = payload_bytes.find(b'"')
-            if quote_idx > 0:
-                payload_bytes = payload_bytes[quote_idx+1:]
-            elif len(payload_bytes) > 37 and b'EXE' in payload_bytes[:45]:
-                exe_idx = payload_bytes.find(b'EXE')
-                if exe_idx >= 0:
-                    payload_bytes = payload_bytes[exe_idx+8:]
-        if b'|' in payload_bytes[:30] or payload_bytes.startswith(b'bB'):
-            return []
-        raw_to_convert = payload_bytes[5:] if len(payload_bytes) > 5 else payload_bytes
-        data_8bits = ConvertFrom6BitsTo8Bits(raw_to_convert)
-        if len(data_8bits) < 4: return []
-        blocks = []
-        pos = 4
-        while pos + 4 <= len(data_8bits):
-            interval = struct.unpack('<h', data_8bits[pos:pos+2])[0]
-            samples = struct.unpack('<h', data_8bits[pos+2:pos+4])[0]
-            pos += 4
-            if interval < 0 or samples < 0 or interval > 1440 or samples > 1000:
-                break
-            vals = []
-            for _ in range(samples):
-                if pos + 2 > len(data_8bits): break
-                vals.append(struct.unpack('<h', data_8bits[pos:pos+2])[0])
-                pos += 2
-            blocks.append((interval, vals))
-        return blocks
-    except Exception as e:
-        print(f"[DECODE OTT] Error: {e}")
-        return []
+    from telemetry_decoders import ott_blocks
+    return ott_blocks(payload, ConvertFrom6BitsTo8Bits)
 
 
-# ==================== DECODIFICACIÓN (SIN CAMBIOS) ====================
 def ConvertFrom6BitsSutron(binaryDataMsg):
     try:
         dataMsgIn6Bits = binaryDataMsg.decode('ascii')
@@ -3369,12 +3075,10 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                 if payload:
                     try:
                         est_data = ESTACIONES.get(dcp_id, {})
-                        decoder_type = est_data.get("decoder", "GS300")
+                        decoder_type = est_data.get("decoder")
                         id_asignado = est_data.get("id_asignado", "")
-
-                        # Auto-detección: GS300 con prefijo CILA → CILA_Text
-                        if decoder_type == 'GS300' and (b':NAME' in payload or b':TA' in payload or id_asignado.startswith('CILA')):
-                            decoder_type = 'CILA_Text'
+                        if not SENSORES.get(id_asignado):
+                            raise ValueError('Sin catálogo válido de sensores para esta estación')
 
                         if decoder_type == 'CILA_Text':
                             records = decode_cila_text(payload, meta["timestamp"])
@@ -3384,9 +3088,12 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                             ott_blocks = decode_ott_binary(payload, meta["timestamp"])
                             if ott_blocks:
                                 insertar_datos_ott(dcp_id, id_asignado, meta["timestamp"], ott_blocks)
-                        elif decoder_type == 'SMN':
+                        elif decoder_type in ('SMN', 'SMN_ver2'):
                             records = decode_smn_text(payload, meta["timestamp"])
                             if records:
+                                from telemetry_decoders import record_sensors
+                                for _, vals in records:
+                                    record_sensors(id_asignado, vals, SENSORES.get(id_asignado, []))
                                 for ts_rec, vals_rec in records:
                                     insertar_datos_por_registro(dcp_id, id_asignado, ts_rec, vals_rec)
                                 ts_min = min(r[0] for r in records)
@@ -3395,22 +3102,16 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                                 ts_ini = hora_concurrente(ts_min - datetime.timedelta(minutes=rango_tx), 60)
                                 actualizar_resumenes_dcp(dcp_id, id_asignado, ts_ini, ts_max, ts_max, rango_tx)
                         elif decoder_type == 'GS':
-                            sensor_data = decode_gasir_text(payload)
-                            sensores_est = SENSORES.get(id_asignado, [])
-                            if sensores_est:
-                                max_pos = max((max(s["posiciones"]) for s in sensores_est if s["posiciones"]), default=0)
-                                valores = [-32763.0] * (max_pos + 1)
-                                for s in sensores_est:
-                                    code = s["numero_sensor"].strip().upper().lstrip('0') or s["numero_sensor"].strip().upper()
-                                    if code in sensor_data:
-                                        for i, pos in enumerate(s["posiciones"]):
-                                            if i < len(sensor_data[code]):
-                                                valores[pos] = sensor_data[code][i]
-                                if any(v != -32763.0 for v in valores):
-                                    insertar_datos_mapeados(dcp_id, id_asignado, meta["timestamp"], valores)
+                            from telemetry_decoders import named_records
+                            records = named_records(payload, meta["timestamp"])
+                            if records:
+                                insertar_datos_cila(dcp_id, id_asignado, records, est_data['rango_transmision'])
                         elif decoder_type == 'VAISALA_Protocol_Text':
                             records = decode_vaisala_text(payload, meta["timestamp"])
                             if records:
+                                from telemetry_decoders import record_sensors
+                                for _, vals in records:
+                                    record_sensors(id_asignado, vals, SENSORES.get(id_asignado, []))
                                 for ts_rec, vals_rec in records:
                                     insertar_datos_por_registro(dcp_id, id_asignado, ts_rec, vals_rec)
                                 ts_min = min(r[0] for r in records)
@@ -3418,12 +3119,17 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                                 rango_tx = est_data.get('rango_transmision', 60)
                                 ts_ini = hora_concurrente(ts_min - datetime.timedelta(minutes=rango_tx), 60)
                                 actualizar_resumenes_dcp(dcp_id, id_asignado, ts_ini, ts_max, ts_max, rango_tx)
-                        else:
-                            # GS300 / Sutron 6-bit (default)
+                        elif decoder_type == "GS300":
+                            # GS300 only; unknown decoder names must never fall through.
                             payload_clean = payload.decode('ascii')[4:].encode('ascii')
                             valores = ConvertFrom6BitsSutron(payload_clean)
                             if valores:
+                                from gs300_catalog import validate_words
+                                validate_words(valores, SENSORES.get(id_asignado, []))
                                 insertar_datos_mapeados(dcp_id, id_asignado, meta["timestamp"], valores)
+
+                        else:
+                            raise ValueError(f"Decodificador no soportado: {decoder_type}")
 
                         # Archivo .mis (solo para estaciones GS300 tradicionales)
                         sensores_estacion = SENSORES.get(id_asignado, [])
@@ -3433,7 +3139,8 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                                                ESTACIONES.get(dcp_id, {}), sensores_estacion)
 
                     except Exception as e:
-                        print(f"[WARN] Error procesando mensaje: {e}")
+                        print(f"[RECHAZADO] {dcp_id}: {e}")
+                        return False
 
                 log_to_pg(dcp_id, True, meta["timestamp"], host)
                 return True
@@ -3532,12 +3239,11 @@ def _encontrar_minuto_libre():
     actividad = [0] * 60
     for data in ESTACIONES.values():
         m = data.get("minuto", -1)
-        rango_tx = data.get("rango_transmision", 60)
-        intervalo = max(rango_tx, 1)
+        intervalo = max(data["intervalo_transmision"], 1)
         if 0 <= m < 60:
             offset = 0
             while offset < 60:
-                m_slot = (m + offset) % 60
+                m_slot = int((m + offset) % 60)
                 for delta in range(-1, 4):   # ventana: m-1 .. m+3
                     actividad[(m_slot + delta) % 60] += 1
                 if intervalo >= 60:
@@ -3550,36 +3256,19 @@ def _encontrar_minuto_libre():
     return mejor, actividad[mejor]
 
 def _programar_estacion(dcp_id, data):
-    """Programa la descarga de una estación en el scheduler.
-    Se esperan 2 minutos DESPUÉS de cada minuto de TX para garantizar que el
-    mensaje ya esté disponible en el servidor LRGS antes de descargarlo.
-    Soporta intervalos estándar (60 min) y sub-horarios (ej. cada 15 min, 30 min).
-    """
-    minuto = data.get("minuto", 0)
-    nombre = data.get("nombre", "?")
-    rango_tx = data.get("rango_transmision", 60)
-    intervalo = max(rango_tx, 1)
+    from gs300_catalog import next_fetch
+    tag = f"dcp_{dcp_id}"
+    schedule.clear(tag)
+    due = next_fetch(data, datetime.datetime.now(datetime.timezone.utc))
+    def tick():
+        nonlocal due
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if now >= due:
+            due = next_fetch(data, now)
+            fetch_messages_for_dcp_wrapper(dcp_id)
+    schedule.every(1).seconds.do(tick).tag(tag)
+    print(f"[SCHED+] {dcp_id} | intervalo {data['intervalo_transmision']} min; próxima descarga UTC {due}")
 
-    if intervalo < 60:
-        # Estación multi-transmisión por hora (ej: cada 15 min → 4 veces por hora)
-        slots = []
-        offset = 0
-        while offset < 60:
-            m_tx = (minuto + offset) % 60
-            m_ejec = (m_tx + 2) % 60
-            schedule.every().hour.at(f":{m_ejec:02d}").do(
-                lambda did=dcp_id: fetch_messages_for_dcp_wrapper(did)
-            ).tag(f"dcp_{dcp_id}")
-            slots.append(f":{m_ejec:02d} (TX :{m_tx:02d})")
-            offset += intervalo
-        print(f"[SCHED+] {dcp_id} | {nombre} [cada {intervalo}m] → {', '.join(slots)}")
-    else:
-        # Estación horaria tradicional
-        minuto_ejec = (minuto + 2) % 60
-        schedule.every().hour.at(f":{minuto_ejec:02d}").do(
-            lambda did=dcp_id: fetch_messages_for_dcp_wrapper(did)
-        ).tag(f"dcp_{dcp_id}")
-        print(f"[SCHED+] {dcp_id} | {nombre} → :{minuto_ejec:02d} (TX :{minuto:02d} +2min)")
 
 def recargar_configuracion():
     """Recarga estaciones y sensores desde SQL Server.
@@ -3612,7 +3301,7 @@ def recargar_configuracion():
         # Detectar estaciones con minuto modificado
         modificadas = set()
         for dcp_id in ids_actuales & ids_nuevos:
-            if ESTACIONES[dcp_id].get("minuto") != nuevas_estaciones[dcp_id].get("minuto"):
+            if any(ESTACIONES[dcp_id].get(k) != nuevas_estaciones[dcp_id].get(k) for k in ("primera_transmision", "intervalo_transmision", "rango_transmision", "decoder")):
                 modificadas.add(dcp_id)
 
         if not agregadas and not eliminadas and not modificadas:
@@ -3627,6 +3316,7 @@ def recargar_configuracion():
         # Aplicar cambios
         if eliminadas:
             for dcp_id in eliminadas:
+                schedule.clear(f"dcp_{dcp_id}")
                 _scheduled_dcp_ids.discard(dcp_id)
             print(f"[RELOAD] Estaciones eliminadas del scheduler: {eliminadas}")
 
@@ -3663,7 +3353,7 @@ def sincronizar_estatus_estaciones(estaciones_dict):
     try:
         cur = conn.cursor()
         rows = [
-            (dcp_id, data.get("rango_transmision", 60), data.get("rango_transmision", 60), 'NEGRO')
+            (dcp_id, data["intervalo_transmision"], data["rango_transmision"], 'NEGRO')
             for dcp_id, data in estaciones_dict.items()
         ]
         if DB_BACKEND == 'oracle':
