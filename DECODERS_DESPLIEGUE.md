@@ -56,6 +56,13 @@ su especificación. Por ello esta rama NO habilita todavía esa estación OTT.
 
 ### Corrección SMN_ver2 del 29/09/2026
 
+MX03 (SMN) también incluye perfil explícito: tabla 2 → 0001–0009 cada
+10 minutos; tabla 4 → 0010–0011 cada hora. Los decimales de ingeniería se
+conservan incluso cuando PUNTODECIMAL=0 en el catálogo. `repair_mx03.py`
+reconstruye los once sensores de los últimos siete días desde mensajes crudos,
+con simulación predeterminada, respaldo exclusivo y `--apply` explícito.
+No se ejecuta automáticamente en Render. Prueba: `test_repair_mx03`.
+
 Perfiles incorporados: SO06, HI03, NY02, NY03 (12 columnas); MC38 (tabla 2:
 11 sensores; tabla 4: batería 0012 y panel 0013). QR15 se habilita solo para
 batería 0010, columna 11; `null` conserva sin asignar las columnas no verificadas.
