@@ -85,7 +85,13 @@ def assign_positions(sensors, coverage):
     if not math.isfinite(coverage) or coverage <= 0:
         raise ValueError('Rango de datos inválido')
     position, seen = 0, set()
-    ordered = sorted(sensors, key=lambda s: s['numero_sensor'])
+    if any(s.get('decoder') == 'GS300' for s in sensors):
+        orders = [s.get('orden') for s in sensors]
+        if any(o is None or not math.isfinite(float(o)) or float(o) != int(o) for o in orders) or len(set(orders)) != len(orders):
+            raise ValueError('GS300: Orden ausente, inválido o duplicado en Sensor')
+        ordered = sorted(sensors, key=lambda s: s['orden'])
+    else:
+        ordered = sorted(sensors, key=lambda s: s['numero_sensor'])
     for sensor in ordered:
         number, period = sensor['numero_sensor'], sensor['periodo']
         if number in seen or not math.isfinite(period) or period <= 0:

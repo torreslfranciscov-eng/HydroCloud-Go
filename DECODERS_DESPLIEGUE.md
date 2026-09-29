@@ -72,6 +72,30 @@ su especificación. Por ello esta rama NO habilita todavía esa estación OTT.
 
 ## Operación
 
+### GS300: orden y calidad de voltajes (29/09/2026)
+
+Para GS300 se usa Sensor.Orden, único y obligatorio, para construir posiciones;
+NumeroSensor identifica el canal, no su posición en la trama. Se mantienen
+RangoTransmision/PeriodoMuestra para calcular cuántas muestras lleva cada canal.
+Radiocomunicación: batería 2001 en posición 12, temperatura 2002 en 13
+(índices desde cero); antes se leía la batería en 84.
+
+El parser estricto reconoce `///` como faltante sin desplazar palabras; no
+convierte automáticamente `\u0060@@` (-131072) en faltante universal. Los voltajes de
+batería/panel negativos o fuera del rango configurado se guardan NULL, inválidos,
+con el valor rechazado en DESCRIPCION y el mensaje original en DCP_HEADERS.
+No se convierten a cero. Otras variables conservan valores negativos legítimos.
+Referencia: https://www.ott.com/download/sutron-x-link-manual/ (sección 16.3).
+
+ULTIMAS_MEDICIONES conserva su estructura histórica por variable, no por sensor:
+ahora solo acepta valores válidos y no nulos. Es un resumen de último dato válido,
+no un diagnóstico del estado actual. DCP_DATOS sigue distinguiendo SENSOR_ID.
+No se incluye un cambio de esquema ni del portal en esta publicación.
+
+`repair_gs300_voltages.py` permite simulación y reparación manual con respaldo
+de los canales de voltaje comprobados de RADIOCO019 y RIOFTAM005. No se ejecuta
+al arrancar el servicio y no altera canales/estaciones no incluidos en su lista.
+
 ### Corrección SMN_ver2 del 29/09/2026
 
 MX03 (SMN) también incluye perfil explícito: tabla 2 → 0001–0009 cada

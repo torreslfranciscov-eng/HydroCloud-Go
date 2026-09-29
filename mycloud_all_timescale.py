@@ -489,7 +489,7 @@ def _actualizar_ultimas_mediciones_oracle(cur, registros_batch):
     try:
         latest_by_sensor = {}
         for r in registros_batch:
-            if not isinstance(r, (tuple, list)) or len(r) < 7:
+            if not isinstance(r, (tuple, list)) or len(r) < 8 or r[7] not in (True,1) or r[5] is None:
                 continue
             ts, dcp_id, id_asig, s_id, var, val, tipo_val = r[0], r[1], r[2], r[3], r[4], r[5], r[6]
             key = (dcp_id, var)
@@ -2493,20 +2493,11 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                 if pos >= len(valores):
                     continue
                 valor_raw = valores[pos]
-                if valor_raw in (-32763.0, -32768.0):
-                    continue
-                valor = round(valor_raw / (10 ** sensor["decimales"]), sensor["decimales"])
+                from telemetry_decoders import scaled_gs300_value
+                valor, valido, descripcion = scaled_gs300_value(valor_raw, sensor)
                 # valor += sensor.get("valor_cota", 0.0)
                 ts = timestamp_goes - datetime.timedelta(minutes=i * sensor["periodo"])
                 ts = hora_concurrente(ts, sensor["periodo"])
-                valido = True
-                descripcion = "OK"
-                if "valor_minimo" in sensor and valor < sensor["valor_minimo"]:
-                    valido = False
-                    descripcion = f"Bajo: {valor} < {sensor['valor_minimo']}"
-                elif "valor_maximo" in sensor and valor > sensor["valor_maximo"]:
-                    valido = False
-                    descripcion = f"Alto: {valor} > {sensor['valor_maximo']}"
                 key = (ts, dcp_id, sensor["numero_sensor"])
                 registros_dict[key] = (
                     ts,
@@ -2761,6 +2752,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
             conn.rollback()
         except Exception:
             pass
+        raise
     finally:
         release_pg_conn(conn)
 
@@ -3143,7 +3135,8 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         elif decoder_type == "GS300":
                             # GS300 only; unknown decoder names must never fall through.
                             payload_clean = payload.strip(b' \r\n')[4:]
-                            valores = ConvertFrom6BitsSutron(payload_clean)
+                            from telemetry_decoders import gs300_words
+                            valores = gs300_words(payload_clean)
                             if valores:
                                 from gs300_catalog import validate_words
                                 validate_words(valores, SENSORES.get(id_asignado, []))

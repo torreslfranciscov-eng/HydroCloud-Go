@@ -49,5 +49,38 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(words[60]/100,13.60)
         self.assertEqual(words[61]/100,26.50)
 
+    def test_radiocomunicacion_catalog_order(self):
+        sensors=[dict(numero_sensor=n,periodo=p,orden=o,decoder='GS300') for n,p,o in
+                 [('1001',5,1),('1010',5,4),('1011',5,5),('1012',5,6),('1015',5,10),('1016',5,11),('1017',5,7),('2001',60,2),('2002',60,3)]]
+        mapped=assign_positions(sensors,60)
+        self.assertEqual(next(s['posiciones'] for s in mapped if s['numero_sensor']=='2001'),[12])
+        self.assertEqual(next(s['posiciones'] for s in mapped if s['numero_sensor']=='2002'),[13])
+        validate_words([0]*86,mapped)
+        sensors[0]['orden']=None
+        with self.assertRaises(ValueError):assign_positions(sensors,60)
+
+    def test_missing_is_not_minimum_signed_word(self):
+        from telemetry_decoders import gs300_words,scaled_gs300_value
+        self.assertEqual(gs300_words(b'@UM@lI`@@///'),[1357,2825,-131072,None])
+        for word in [b'@U',b'//@',b'!!!']:
+            with self.assertRaises(ValueError):gs300_words(word)
+        battery=dict(nombre='Voltaje de batería',decimales=2,valor_minimo=0,valor_maximo=17)
+        self.assertEqual(scaled_gs300_value(1357,battery),(13.57,True,'OK'))
+        self.assertEqual(scaled_gs300_value(-131072,battery)[:2],(None,False))
+        self.assertEqual(scaled_gs300_value(-100,dict(nombre='Temperatura',decimales=2))[:2],(-1,True))
+
+    def test_invalid_sensor_cannot_replace_valid_legacy_summary(self):
+        tree=ast.parse(pathlib.Path('mycloud_all_timescale.py').read_text())
+        node=next(n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_actualizar_ultimas_mediciones_oracle')
+        captured=[]
+        scope=dict(DB_BACKEND='oracle',_clean_oracle_bind_val=lambda x:x,oracle_bulk_upsert=lambda c,q,r:captured.extend(r))
+        exec(compile(ast.Module(body=[node],type_ignores=[]),'isolated','exec'),scope)
+        t=dt.datetime(2026,9,29,16)
+        rows=[(t,'DCP','RIO','0012','voltaje_de_batería',13.45,'voltaje',True),
+              (t,'DCP','RIO','0013','voltaje_de_batería',-1310.72,'voltaje',False)]
+        scope['_actualizar_ultimas_mediciones_oracle'](None,rows)
+        self.assertEqual(len(captured),1)
+        self.assertEqual(captured[0][3],13.45)
+
 
 if __name__=='__main__':unittest.main()

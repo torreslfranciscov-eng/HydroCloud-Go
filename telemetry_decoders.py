@@ -42,10 +42,43 @@ def validate_decoder_payload(decoder, payload):
     if family not in allowed.get(decoder, set()):
         raise ValueError(f'Decoder {decoder} incompatible con trama {family}; no se insertan mediciones')
     if family == 'pseudobinary_b':
-        words = payload.strip(b' \r\n')[4:]
-        if not words or len(words) % 3 or any(not 63 <= ch <= 126 for ch in words):
-            raise ValueError('GS300: palabras de 18 bits incompletas o caracteres inválidos')
+        gs300_words(payload.strip(b' \r\n')[4:])
     return family
+
+
+def gs300_words(data):
+    """Strict signed 18-bit words; /// is missing, not a numeric sentinel."""
+    if not data or len(data) % 3:
+        raise ValueError('GS300: palabras de 18 bits incompletas')
+    values = []
+    for pos in range(0,len(data),3):
+        word=data[pos:pos+3]
+        if word == b'///':
+            values.append(None)
+            continue
+        if any(not 63 <= ch <= 126 for ch in word):
+            raise ValueError('GS300: caracteres inválidos')
+        value=0
+        for ch in word:
+            value=(value<<6)|(ch if ch<64 else ch-64)
+        values.append(value-(1<<18) if value & (1<<17) else value)
+    return values
+
+
+def scaled_gs300_value(raw, sensor):
+    if raw is None:
+        return None, False, 'Dato faltante en trama (///)'
+    value=round(raw/(10**sensor['decimales']),sensor['decimales'])
+    low=sensor.get('valor_minimo',-math.inf)
+    high=sensor.get('valor_maximo',math.inf)
+    voltage='voltaje' in sensor['nombre'].lower() and ('bater' in sensor['nombre'].lower() or 'panel' in sensor['nombre'].lower())
+    if voltage:
+        low=max(0,low)
+    valid=low<=value<=high
+    description='OK' if valid else f'Fuera de rango: {value} [{low}, {high}]'
+    # Preserve invalid numeric evidence in description and raw_message, not as
+    # a physical battery/panel voltage. Other variables retain signed values.
+    return (None if voltage and not valid else value),valid,description
 
 
 def number(token):

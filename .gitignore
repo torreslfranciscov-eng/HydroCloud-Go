@@ -22,3 +22,4 @@ timescale-timezone-state.json
 dds_last/
 *-voltage-backup-*.json
 decoder-audit-*.json
+gs300-audit-*.json
