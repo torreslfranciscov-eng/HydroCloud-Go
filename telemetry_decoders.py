@@ -157,6 +157,8 @@ def ordered_sensors(sensors, order, count):
 
 
 def record_sensors(station, values, sensors):
+    if sensors and all(s.get('decoder') == 'SMN' for s in sensors):
+        return smn_catalog_sensors(values, sensors)
     tables = profile(station).get('tables', {})
     order = tables.get(getattr(values, 'table', 'default'))
     if not order or len(order) != len(values):
@@ -165,6 +167,34 @@ def record_sensors(station, values, sensors):
     mapped = iter(ordered_sensors(sensors, active, len(active)))
     # Explicit null slots retain column positions without guessing a sensor.
     return [next(mapped) if code is not None else None for code in order]
+
+
+def smn_catalog_sensors(values, sensors):
+    """Verified numbered SMN tables; authoritative order comes from Sensor.
+
+    No inference by plausible readings, no slicing excess columns, no fallback
+    from unknown tables to a different group. Unnumbered formats stay explicit.
+    """
+    table = getattr(values, 'table', None)
+    if table not in ('2', '4'):
+        raise ValueError(f'SMN: tabla {table} sin correspondencia comprobada en Sensor')
+    period = 10 if table == '2' else 60
+    selected = [s for s in sensors if s['periodo'] == period and s.get('calculada') == 0]
+    if len(selected) != len(values) or not selected:
+        raise ValueError(f'SMN tabla {table}: {len(values)} columnas; Sensor configura {len(selected)} canales de {period} min')
+    orders = [s.get('orden') for s in selected]
+    if any(o is None or not math.isfinite(float(o)) or float(o) != int(o) for o in orders) or len(set(orders)) != len(orders):
+        raise ValueError('SMN: Orden ausente, no entero o duplicado en Sensor')
+    if len({s['numero_sensor'] for s in sensors}) != len(sensors):
+        raise ValueError('SMN: NumeroSensor duplicado')
+    if any(not s.get('unidad') for s in selected):
+        raise ValueError('SMN: falta unidad de medida en Sensor')
+    selected.sort(key=lambda s:s['orden'])
+    if table == '4':
+        names = [s['nombre'].lower() for s in selected]
+        if len(selected) != 2 or 'bater' not in names[0] or 'panel' not in names[1] or any(s['unidad'].upper() != 'V' for s in selected):
+            raise ValueError('SMN tabla 4: catálogo no identifica batería y panel en V, en ese orden')
+    return selected
 
 
 def ott_sensors(station, blocks, sensors, coverage):

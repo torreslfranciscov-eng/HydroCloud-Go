@@ -56,16 +56,23 @@ def load_stations(connection):
 def load_sensors(connection):
     with connection.cursor() as cur:
         cur.execute('''SELECT E.IDASIGNADO,S.NUMEROSENSOR,T.NOMBRE,S.PUNTODECIMAL,
-            S.PERIODOMUESTRA,S.VALORMINIMO,S.VALORMAXIMO
+            S.PERIODOMUESTRA,S.VALORMINIMO,S.VALORMAXIMO,S.ORDEN,U.ABREVIATURA,
+            T.ESCALCULADA,
+            (SELECT CASE WHEN COUNT(DISTINCT TRIM(G.DECODIFICADOR))=1
+              THEN MAX(TRIM(G.DECODIFICADOR)) END FROM HYDROCLOUD.DATOSGOES G
+              WHERE G.IDESTACION=E.ID)
             FROM HYDROCLOUD.SENSOR S JOIN HYDROCLOUD.ESTACION E ON E.ID=S.IDESTACION
             JOIN HYDROCLOUD.TIPOSENSOR T ON T.ID=S.IDTIPOSENSOR
+            LEFT JOIN HYDROCLOUD.UNIDADMEDIDA U ON U.ID=S.IDUNIDADMEDIDA
             WHERE E.ACTIVO=1 AND S.ACTIVO=1 ORDER BY E.IDASIGNADO,S.NUMEROSENSOR''')
         result = {}
-        for code, number, name, decimals, period, low, high in cur:
+        for code, number, name, decimals, period, low, high, order, unit, calculated, decoder in cur:
             if number is None or decimals is None or period is None or float(period) <= 0:
                 raise ValueError('Sensor sin periodo/decimales válidos: ' + str(code))
             sensor = dict(numero_sensor=str(number).strip().zfill(4), nombre=str(name),
-                decimales=int(decimals), periodo=float(period), posiciones=[])
+                decimales=int(decimals), periodo=float(period), posiciones=[],
+                orden=order, unidad=str(unit).strip() if unit is not None else None,
+                calculada=calculated, decoder=decoder)
             if low is not None:
                 sensor['valor_minimo'] = float(low)
             if high is not None:

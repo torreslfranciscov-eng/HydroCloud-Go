@@ -8,6 +8,24 @@ Ejecutar antes `python -m unittest test_gs300_config test_telemetry_decoders -v`
 
 ## Configuración necesaria
 
+### SMN: configuración desde Sensor (29/09/2026)
+
+Para estaciones cuyo DatosGOES.Decodificador es SMN, la fuente de asignación
+es Sensor → Estacion/TipoSensor/UnidadMedida. Se cargan Orden, PeriodoMuestra,
+unidad y EsCalculada, antes omitidos. La tabla 2 usa canales no calculados de
+10 minutos; tabla 4 usa batería y panel de 60 minutos, en V. Ambos grupos se
+ordenan por Sensor.Orden, no por NumeroSensor ni por plausibilidad del valor.
+Se exige cantidad exacta, órdenes únicos y unidades presentes. No se necesita
+agregar JSON por estación para esas tablas; el JSON no prevalece sobre Sensor
+en SMN. Tablas adicionales o discrepancias se rechazan, sin truncar columnas.
+
+SMN_ver2, Vaisala y OTT conservan las excepciones explícitas existentes: no se
+extrapola la estructura de tablas SMN a protocolos diferentes. El texto no se
+escala nuevamente por PuntoDecimal. Cada mensaje textual completo y su resumen
+se guardan en una transacción; una excepción revierte todas sus filas.
+
+Esta corrección de ingesta no reescribe automáticamente datos históricos.
+
 - Configurar `ORACLE_CATALOG_USER`, `ORACLE_CATALOG_PASSWORD` y
   `ORACLE_CATALOG_DSN` mediante secretos del servicio (véase GS300_CORRECCION.md).
 - `decoder_profiles.json` incluye SO06: 12 columnas textuales, batería 0011 y

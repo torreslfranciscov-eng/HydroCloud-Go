@@ -509,6 +509,7 @@ def _actualizar_ultimas_mediciones_oracle(cur, registros_batch):
             """, upsert_rows)
     except Exception as e:
         print(f"[WARN] Error actualizando ultimas_mediciones en Oracle: {e}")
+        raise  # The caller must roll back; do not commit stale summaries.
 
 
 def get_pg_conn():
@@ -2383,11 +2384,12 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
         release_pg_conn(conn)
 
 
-def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record: datetime.datetime, valores: list):
+def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record: datetime.datetime, valores: list, conn=None):
     """Inserta un registro de datos (SMN, VAISALA) mapeando valores por posicion de sensor."""
     sensores = SENSORES.get(id_asignado)
     if not sensores: return
-    conn = get_pg_conn()
+    owns_connection = conn is None
+    conn = get_pg_conn() if owns_connection else conn
     if not conn: return
     try:
         cur = conn.cursor()
@@ -2436,10 +2438,32 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
                 """, registros_batch, page_size=500)
             if DB_BACKEND == 'oracle':
                 _actualizar_ultimas_mediciones_oracle(cur, registros_batch)
-            conn.commit()
+            if owns_connection:
+                conn.commit()
     except Exception as e:
-        conn.rollback()
+        if owns_connection:
+            conn.rollback()
         print(f"[ERROR INSERT REC] {e}")
+        raise
+    finally:
+        if owns_connection:
+            release_pg_conn(conn)
+
+
+def insertar_mensaje_textual(dcp_id, id_asignado, records):
+    """All tables in one transaction: no partially saved textual messages."""
+    from telemetry_decoders import record_sensors
+    for _, values in records:
+        record_sensors(id_asignado, values, SENSORES.get(id_asignado, []))
+    conn = get_pg_conn()
+    if conn is None:
+        raise RuntimeError('Sin conexión para guardar mensaje textual')
+    try:
+        for stamp, values in records:
+            insertar_datos_por_registro(dcp_id, id_asignado, stamp, values, conn=conn)
+        conn.commit()
+    except Exception:
+        conn.rollback()
         raise
     finally:
         release_pg_conn(conn)
@@ -3096,11 +3120,7 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         elif decoder_type in ('SMN', 'SMN_ver2'):
                             records = decode_smn_text(payload, meta["timestamp"])
                             if records:
-                                from telemetry_decoders import record_sensors
-                                for _, vals in records:
-                                    record_sensors(id_asignado, vals, SENSORES.get(id_asignado, []))
-                                for ts_rec, vals_rec in records:
-                                    insertar_datos_por_registro(dcp_id, id_asignado, ts_rec, vals_rec)
+                                insertar_mensaje_textual(dcp_id, id_asignado, records)
                                 ts_min = min(r[0] for r in records)
                                 ts_max = max(r[0] for r in records)
                                 rango_tx = est_data.get('rango_transmision', 60)
@@ -3114,11 +3134,7 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         elif decoder_type == 'VAISALA_Protocol_Text':
                             records = decode_vaisala_text(payload, meta["timestamp"])
                             if records:
-                                from telemetry_decoders import record_sensors
-                                for _, vals in records:
-                                    record_sensors(id_asignado, vals, SENSORES.get(id_asignado, []))
-                                for ts_rec, vals_rec in records:
-                                    insertar_datos_por_registro(dcp_id, id_asignado, ts_rec, vals_rec)
+                                insertar_mensaje_textual(dcp_id, id_asignado, records)
                                 ts_min = min(r[0] for r in records)
                                 ts_max = max(r[0] for r in records)
                                 rango_tx = est_data.get('rango_transmision', 60)
