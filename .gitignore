@@ -20,3 +20,5 @@ timescale-migration-state.json
 timescale-timezone-state.json
 *.log
 dds_last/
+*-voltage-backup-*.json
+decoder-audit-*.json

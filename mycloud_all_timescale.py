@@ -2397,6 +2397,7 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
         for idx, valor_raw in enumerate(valores):
             if idx >= len(sensores_filtrados): continue
             sensor = sensores_filtrados[idx]
+            if sensor is None: continue  # Explicitly unassigned profile column.
             if valor_raw == -32763.0 or valor_raw == -32768.0: continue
             valor = float(valor_raw)  # Text already contains engineering-unit decimals.
             valido = not ("valor_minimo" in sensor and valor < sensor["valor_minimo"] or "valor_maximo" in sensor and valor > sensor["valor_maximo"])
@@ -2433,6 +2434,8 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
                         descripcion = EXCLUDED.descripcion, anio = EXCLUDED.anio,
                         mes = EXCLUDED.mes, dia = EXCLUDED.dia, hora = EXCLUDED.hora, minuto = EXCLUDED.minuto
                 """, registros_batch, page_size=500)
+            if DB_BACKEND == 'oracle':
+                _actualizar_ultimas_mediciones_oracle(cur, registros_batch)
             conn.commit()
     except Exception as e:
         conn.rollback()
@@ -3077,6 +3080,8 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         est_data = ESTACIONES.get(dcp_id, {})
                         decoder_type = est_data.get("decoder")
                         id_asignado = est_data.get("id_asignado", "")
+                        from telemetry_decoders import validate_decoder_payload
+                        validate_decoder_payload(decoder_type, payload)
                         if not SENSORES.get(id_asignado):
                             raise ValueError('Sin catálogo válido de sensores para esta estación')
 
@@ -3121,7 +3126,7 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                                 actualizar_resumenes_dcp(dcp_id, id_asignado, ts_ini, ts_max, ts_max, rango_tx)
                         elif decoder_type == "GS300":
                             # GS300 only; unknown decoder names must never fall through.
-                            payload_clean = payload.decode('ascii')[4:].encode('ascii')
+                            payload_clean = payload.strip(b' \r\n')[4:]
                             valores = ConvertFrom6BitsSutron(payload_clean)
                             if valores:
                                 from gs300_catalog import validate_words
@@ -3135,7 +3140,7 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         sensores_estacion = SENSORES.get(id_asignado, [])
                         if config.getboolean('settings', 'generar_mis', fallback=True) and decoder_type in ('GS300', 'GS'):
                             imports_manager.generar_archivo_mis(dcp_id, meta, raw_header, raw_payload, 
-                                               ConvertFrom6BitsSutron(payload.decode('ascii')[4:].encode('ascii')) if decoder_type in ('GS300',) else [],
+                                               ConvertFrom6BitsSutron(payload.strip(b' \r\n')[4:]) if decoder_type in ('GS300',) else [],
                                                ESTACIONES.get(dcp_id, {}), sensores_estacion)
 
                     except Exception as e:

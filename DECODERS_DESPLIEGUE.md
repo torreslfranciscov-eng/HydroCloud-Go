@@ -2,16 +2,18 @@
 
 ## Archivos
 
-Desplegar juntos `mycloud_all_timescale.py`, `gs300_catalog.py` y
-`telemetry_decoders.py`; no basta con reemplazar el script principal.
+Desplegar juntos `mycloud_all_timescale.py`, `gs300_catalog.py`,
+`telemetry_decoders.py` y `decoder_profiles.json`; no basta con reemplazar el script principal.
 Ejecutar antes `python -m unittest test_gs300_config test_telemetry_decoders -v`.
 
 ## Configuración necesaria
 
 - Configurar `ORACLE_CATALOG_USER`, `ORACLE_CATALOG_PASSWORD` y
   `ORACLE_CATALOG_DSN` mediante secretos del servicio (véase GS300_CORRECCION.md).
-- Configurar `DECODER_PROFILES_PATH` apuntando a JSON local revisado por estación,
-  indexado por IdAsignado. No desplegar el ejemplo como configuración real.
+- `decoder_profiles.json` incluye SO06: 12 columnas textuales, batería 0011 y
+  panel 0012, sin reescalar decimales. Para otros perfiles configurar
+  `DECODER_PROFILES_PATH`, indexado por IdAsignado. El archivo externo prevalece
+  sobre el incorporado para las estaciones que define. No activar el ejemplo.
 - `ott_order`: lista de NumeroSensor por orden de bloque OTT. La cantidad,
   intervalo y cobertura deben coincidir con el catálogo. No se eligen sensores
   por plausibilidad de valores. Sin perfil, OTT se rechaza sin escribir lecturas.
@@ -51,6 +53,31 @@ ni se certifica su checksum: el parser estricto rechaza esa cola hasta validar
 su especificación. Por ello esta rama NO habilita todavía esa estación OTT.
 
 ## Operación
+
+### Corrección SMN_ver2 del 29/09/2026
+
+Perfiles incorporados: SO06, HI03, NY02, NY03 (12 columnas); MC38 (tabla 2:
+11 sensores; tabla 4: batería 0012 y panel 0013). QR15 se habilita solo para
+batería 0010, columna 11; `null` conserva sin asignar las columnas no verificadas.
+CS05 y MC09 no tienen tramas disponibles para certificar su perfil y siguen
+requiriendo configuración explícita. No copiar el perfil SO06 a todas.
+
+Los registros textuales mantienen sus valores y fechas, sin escala adicional,
+y actualizan `ULTIMAS_MEDICIONES`. Las firmas incompatibles se rechazan antes
+de entrar al decodificador. Incluir `decoder_profiles.json` en el despliegue;
+si existe `DECODER_PROFILES_PATH`, sus entradas prevalecen por estación.
+
+Reparación manual de voltajes: `python repair_so06_voltages.py --station HI03
+--backup /ruta/nueva/HI03-voltage-backup-fecha.json` simula; `--apply` escribe.
+El nombre del script se conserva por compatibilidad; acepta los seis perfiles
+verificados. No se ejecuta al arrancar Render. Solo cubre últimos siete días,
+con respaldo previo, coincidencia temporal exacta y rechazo de contradicciones.
+No modifica voltajes positivos diferentes del original ni interpola faltantes.
+Los respaldos no se incluyen en Git. QR15 no repara los dos paneles ambiguos.
+
+Pruebas: `python -m unittest test_gs300_config test_telemetry_decoders test_repair_so06 -v`.
+
+### Notas de la preparación inicial (28/09/2026)
 
 No se inició la ingesta ni se reprocesó el histórico durante la preparación.
 El arranque actual del programa ejecuta sincronización/revalidación: no importar

@@ -10,6 +10,26 @@ NOW = dt.datetime(2026, 9, 28, 17, 47, 46, tzinfo=dt.timezone.utc)
 
 
 class DecoderTests(unittest.TestCase):
+    def test_wire_family_not_plausibility(self):
+        cases = [(b'bB1A@UP', 'pseudobinary_b'), (b'`B1A@UP', 'pseudobinary_b'),
+                 (b'`OTA@xyz', 'ota'), (b'bOTA@xyz', 'ota'),
+                 (b'2 22:40:00 82,62,8.5', 'table_text'),
+                 (b'23:00:00 12.4 7.2', 'text'),
+                 (b'"\r\nNI 15 1.59\r\nVB 60 13.23', 'named'),
+                 (b'":TA 47 #60 27.26', 'cila'),
+                 (b'Missing message from 12345678 expected by 00:00', 'notice'),
+                 (b'"SATLINK DATA BUFFER EMPTY test', 'notice')]
+        for payload, family in cases:
+            with self.subTest(payload=payload):self.assertEqual(d.payload_family(payload), family)
+
+    def test_reject_wrong_decoder_and_partial_word(self):
+        for payload in [b'2 22:40:00 82,62,8.5', b'`OTA@xyz',
+                        b'Missing message from station', b'bB1A@U', b'bB1A!!!']:
+            with self.subTest(payload=payload), self.assertRaises(ValueError):
+                d.validate_decoder_payload('GS300', payload)
+        self.assertEqual(d.validate_decoder_payload('GS300',b'bB1A@UP\r\n'),'pseudobinary_b')
+        with self.assertRaises(ValueError):d.validate_decoder_payload('OTTBinario',b'bB1A@UP')
+
     def test_smn_columns_decimals_and_table(self):
         row=d.text_records(b'2 17:40:00 27.5,,13.9,#2', NOW, 'SMN')[0][1]
         self.assertEqual(row,[27.5,d.MISSING,13.9,d.MISSING])
@@ -73,10 +93,39 @@ class DecoderTests(unittest.TestCase):
             def commit(self):pass
             def rollback(self):pass
         sensor=dict(numero_sensor='0001',nombre='Temperatura',decimales=1,periodo=10)
-        scope=dict(datetime=dt,SENSORES={'test':[sensor]},DB_BACKEND='oracle',get_pg_conn=lambda:Connection(),release_pg_conn=lambda _:None,oracle_bulk_upsert=lambda c,s,rows:captured.extend(rows))
+        summaries=[]
+        scope=dict(datetime=dt,SENSORES={'test':[sensor]},DB_BACKEND='oracle',get_pg_conn=lambda:Connection(),release_pg_conn=lambda _:None,oracle_bulk_upsert=lambda c,s,rows:captured.extend(rows),_actualizar_ultimas_mediciones_oracle=lambda c,rows:summaries.extend(rows))
         exec(compile(ast.Module(body=[node],type_ignores=[]),'isolated','exec'),scope)
         with patch.object(d,'profile',return_value={'tables':{'2':['0001']}}):scope['insertar_datos_por_registro']('dcp','test',NOW,d.Values([23.4],'2'))
         self.assertEqual(captured[0][5],23.4)
+        self.assertEqual(summaries,captured)
+
+    def test_so06_battery_and_panel_precision(self):
+        row=d.text_records(b'13:50:00 328 333 013.4 018.0 26.4 086 1000.5 1000.9 00.00 0020 12.33 014.1', NOW, 'SMN_ver2')[0][1]
+        sensors=[dict(numero_sensor=f'{n:04d}') for n in range(1,13)]
+        with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH':''}):
+            ordered=d.record_sensors('SO06',row,sensors)
+        self.assertEqual((ordered[10]['numero_sensor'],row[10]),('0011',12.33))
+        self.assertEqual((ordered[11]['numero_sensor'],row[11]),('0012',14.1))
+        with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH':''}),self.assertRaises(ValueError):
+            d.record_sensors('SO06',d.Values(row[:-1],'default'),sensors)
+
+    def test_mixed_smn_tables_keep_voltage_order(self):
+        sensors=[dict(numero_sensor=f'{n:04d}') for n in range(1,14)]
+        records=d.text_records(b'2 15:00:00 349,346,4.8,7.9,27.2,77,979.0,0.00,268,#2,#2\r\n4 15:00:00 12.9,13.0',NOW,'SMN_ver2')
+        with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH':''}):
+            self.assertEqual(len(d.record_sensors('MC38',records[0][1],sensors)),11)
+            self.assertEqual([s['numero_sensor'] for s in d.record_sensors('MC38',records[1][1],sensors)],['0012','0013'])
+        self.assertEqual(records[1][1],[12.9,13.0])
+
+    def test_qr15_explicit_partial_profile_does_not_shift_columns(self):
+        sensors=[dict(numero_sensor=f'{n:04d}') for n in range(1,13)]
+        values=d.Values([171,14,1.7,4.3,26.2,d.MISSING,d.MISSING,d.MISSING,0,220,12.38,0],'default')
+        with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH':''}):
+            mapped=d.record_sensors('QR15',values,sensors)
+        self.assertEqual([i for i,s in enumerate(mapped) if s is not None],[10])
+        self.assertEqual(mapped[10]['numero_sensor'],'0010')
+        self.assertEqual(values[10],12.38)
 
 
 if __name__=='__main__':unittest.main()

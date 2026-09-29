@@ -1,0 +1,16 @@
+{
+  "HI03": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "NY02": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "NY03": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "MC38": {"tables":{"2":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011"],"4":["0012","0013"]}},
+  "QR15": {
+    "tables":{"default":[null,null,null,null,null,null,null,null,null,null,"0010",null]},
+    "evidence":"Solo batería: columna 11. Resto pendiente de conciliación del catálogo; sensores 0011 y 0012 duplican panel solar. No inferir sus asignaciones."
+  },
+  "SO06": {
+    "tables": {
+      "default": ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008", "0009", "0010", "0011", "0012"]
+    },
+    "evidence": "Bahía de Kino 15B6A150: SMN_ver2, 12 columnas y sensores 0001-0012 del catálogo. Trama 2026-09-29 14:30:01 UTC: batería columna 11, panel columna 12. Texto en unidades de ingeniería; no escalar por PUNTODECIMAL."
+  }
+}

@@ -5,8 +5,47 @@ import math
 import os
 import re
 import struct
+from pathlib import Path
 
 MISSING = -32763.0
+
+
+def payload_family(payload):
+    """Identify wire syntax, not sensor order or manufacturer from plausible values."""
+    data = payload.strip(b' \r\n')
+    text = data.decode('ascii', errors='replace').strip(' \r\n"')
+    if text.startswith(('Missing message from ', 'SATLINK DATA BUFFER EMPTY')):
+        return 'notice'
+    if data.startswith(b'OTA') or data[1:4] == b'OTA':
+        return 'ota'
+    if len(data) >= 4 and data[1:3] == b'B1' and data[0] in (34, 96, 98):
+        return 'pseudobinary_b'
+    if re.match(r':?[A-Z][A-Z0-9]{1,3}\s+\d+\s+#\d+\s', text):
+        return 'cila'
+    if re.match(r'[A-Z][A-Z0-9]{1,3}\s+\d+\s+', text):
+        return 'named'
+    if re.match(r'\d{1,2}\s+\d{2}:\d{2}:\d{2}\s', text):
+        return 'table_text'
+    if re.match(r'(?:(?:\d{4}-\d{2}-\d{2})\s+)?\d{2}:\d{2}:\d{2}\s', text):
+        return 'text'
+    if re.match(r'(02|04|2|4)\s*\d{8}(?:\d{2}){0,2},', text):
+        return 'table_text'
+    return 'unknown'
+
+
+def validate_decoder_payload(decoder, payload):
+    family = payload_family(payload)
+    allowed = {'GS300': {'pseudobinary_b'}, 'OTTBinario': {'ota'},
+               'GS': {'named'}, 'CILA_Text': {'cila'},
+               'SMN': {'table_text', 'text'}, 'SMN_ver2': {'table_text', 'text'},
+               'VAISALA_Protocol_Text': {'table_text', 'text'}}
+    if family not in allowed.get(decoder, set()):
+        raise ValueError(f'Decoder {decoder} incompatible con trama {family}; no se insertan mediciones')
+    if family == 'pseudobinary_b':
+        words = payload.strip(b' \r\n')[4:]
+        if not words or len(words) % 3 or any(not 63 <= ch <= 126 for ch in words):
+            raise ValueError('GS300: palabras de 18 bits incompletas o caracteres inválidos')
+    return family
 
 
 def number(token):
@@ -99,11 +138,13 @@ def named_records(payload, received, cila=False):
 
 
 def profile(station):
+    with Path(__file__).with_name('decoder_profiles.json').open(encoding='utf-8') as handle:
+        profiles = json.load(handle)
     path = os.environ.get('DECODER_PROFILES_PATH')
-    if not path:
-        return {}
-    with open(path, encoding='utf-8') as handle:
-        return json.load(handle).get(station, {})
+    if path:
+        with open(path, encoding='utf-8') as handle:
+            profiles.update(json.load(handle))
+    return profiles.get(station, {})
 
 
 def ordered_sensors(sensors, order, count):
@@ -117,7 +158,13 @@ def ordered_sensors(sensors, order, count):
 
 def record_sensors(station, values, sensors):
     tables = profile(station).get('tables', {})
-    return ordered_sensors(sensors, tables.get(getattr(values, 'table', 'default')), len(values))
+    order = tables.get(getattr(values, 'table', 'default'))
+    if not order or len(order) != len(values):
+        raise ValueError('Falta perfil textual o cantidad de columnas no coincide')
+    active = [code for code in order if code is not None]
+    mapped = iter(ordered_sensors(sensors, active, len(active)))
+    # Explicit null slots retain column positions without guessing a sensor.
+    return [next(mapped) if code is not None else None for code in order]
 
 
 def ott_sensors(station, blocks, sensors, coverage):
