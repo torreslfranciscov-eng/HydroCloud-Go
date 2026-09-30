@@ -165,3 +165,14 @@ sin evidencia se conservaron. Respaldo local privado:
 `LG44-voltage-backup-ott-applied-20260930.json` (ignorado por Git).
 No se repararon otros sensores, otras estaciones ni agregados históricos.
 El envío a GitLab no certifica por sí mismo que Render haya arrancado esa versión.
+
+Ampliación del 30/09: La Purísima (126), Barberena (142), Gómez Farías (142),
+Puente Tonalá (142) y Soto la Marina (143): 695 muestras verificadas desde una
+conexión nueva, 495 actualizaciones y 200 inserciones. En estas cinco estaciones
+no quedaron filas antiguas sin correspondencia dentro de las ventanas revisadas.
+Los respaldos individuales `*-voltage-backup-ott-applied-20260930.json` permanecen
+locales y fuera de Git. Total con Acueducto: 829 muestras de batería reconstruidas.
+Antes de estas reparaciones adicionales se verificaron lecturas nuevas guardadas
+por la ingesta que coincidían con las tramas: La Purísima 14.39 V (19 UTC),
+Barberena 13.39 V (18 UTC), Gómez Farías 13.60 V (18 UTC), Puente Tonalá 13.46 V
+(18 UTC) y Soto la Marina 13.60 V (19 UTC). No se obtuvo el estado del panel Render.

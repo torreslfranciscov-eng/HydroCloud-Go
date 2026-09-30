@@ -1,4 +1,4 @@
-"""Bounded OTT battery replay: verified Acueducto station, seven days, backup first.
+"""Bounded OTT battery replay: explicit verified stations, seven days, backup first.
 
 Read-only by default; requires --apply for writes. Never imports the ingestion app.
 Only reconstructible sample keys are modified; unmatched old rows are reported.
@@ -13,14 +13,25 @@ from pathlib import Path
 from gs300_catalog import load_sensors, load_stations
 from telemetry_decoders import ott_blocks, ott_sensors, ott_value, payload_family
 
+CASES = {
+    '000000LG44': ('15B94430', '0011'),
+    '000000LG29': ('15B855BC', '0011'),
+    'BARBTAM056': ('16AA60AA', '0019'),
+    'FARITAM002': ('15F3B63A', '0014'),
+    'PTONA27120': ('15AE52EC', '0900'),
+    'SOTOTAM047': ('1A51E248', '0019'),
+}
+
 
 def main():
     import oracledb
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--backup', required=True)
     p.add_argument('--apply', action='store_true')
+    p.add_argument('--station', choices=CASES, default='000000LG44')
     args = p.parse_args()
-    code, dcp, sensor_id = '000000LG44', '15B94430', '0011'
+    code = args.station
+    dcp, sensor_id = CASES[code]
     tree = ast.parse(Path(__file__).with_name('mycloud_all_timescale.py').read_text())
     node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'ConvertFrom6BitsTo8Bits')
     scope = {}
