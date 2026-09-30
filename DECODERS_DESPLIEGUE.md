@@ -134,3 +134,25 @@ el módulo principal para pruebas de solo lectura. No hacer recuperación masiva
 hasta validar perfiles y respaldar las series afectadas. Conservar la versión
 previa como referencia, pero no restaurar su decodificación heurística para
 solucionar un rechazo de configuración.
+# OTT: corrección basada en IGS LRGS C# (30/09/2026)
+
+Referencia aportada: `LRGS_VS15_24062017_mod.rar`,
+`igs.lrgs/Igs.Lrgs/DcpMessageParser.cs` y `NativeDcpMessage.cs`.
+No se incluye el archivo RAR en el despliegue.
+
+- Fecha interna: Int32 little-endian, segundos desde 2000-01-01; no se sustituye por recepción.
+- Bloques: intervalo y cantidad Int16; muestras Int16 en orden antiguo a reciente.
+- Intervalo cero: cada valor lleva fecha Int32 propia.
+- Banderas inferiores a -32700: NULL, inválidas, con código original en descripción.
+- Canales del catálogo: sensores no calculados por Sensor.Orden; cantidad y periodo deben coincidir.
+- Voltajes negativos/fuera de límites: NULL e inválidos; no alimentan últimas mediciones.
+- Cabeceras OTA con prefijo comilla, acento grave, b o espacio.
+- Reloj interno fuera de recepción -7 días / +5 minutos: rechazar sin inventar fechas.
+- Mensajes truncados o colas desconocidas: rechazar íntegros; no copiar la aceptación parcial del C#.
+
+Validación real sin escrituras: Acueducto Chapala–Guadalajara, sensor 0011,
+14.08 V a 2026-09-30 16:00 UTC. El Arenal: bandera -32758 y reloj en 2007,
+rechazado. Agua Salada: cola no interpretada, pendiente. No se certifican todas
+las variantes OTT. La tabla Sensor actual no contiene las dos ecuaciones lineales
+opcionales del C#; no se inventan calibraciones. No se reparó histórico ni se desplegó
+como parte de esta validación local.

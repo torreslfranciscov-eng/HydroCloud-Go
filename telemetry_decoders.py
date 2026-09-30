@@ -231,34 +231,81 @@ def smn_catalog_sensors(values, sensors):
 
 
 def ott_sensors(station, blocks, sensors, coverage):
-    ordered = ordered_sensors(sensors, profile(station).get('ott_order'), len(blocks))
+    active = [s for s in sensors if not s.get('calculada')]
+    orders = [s.get('orden') for s in active]
+    if active and all(o is not None and math.isfinite(float(o)) and float(o).is_integer() for o in orders) and len(set(orders)) == len(orders):
+        ordered = sorted(active, key=lambda s: float(s['orden']))
+        if len(ordered) != len(blocks):
+            raise ValueError('OTT: cantidad de bloques no coincide con Sensor')
+    else:
+        ordered = ordered_sensors(active, profile(station).get('ott_order'), len(blocks))
     for (interval, values), sensor in zip(blocks, ordered):
-        if interval <= 0 or interval != sensor['periodo'] or len(values) * interval != coverage:
+        if interval != 0 and (interval != sensor['periodo'] or len(values) * interval != coverage):
             raise ValueError('OTT: intervalo/cantidad de muestras no coincide con catálogo')
     return ordered
 
 
-def ott_blocks(payload, convert):
+class OttValues(list):
+    """Raw samples in wire order, with times decoded from the OTT message."""
+    def __init__(self, values, times):
+        super().__init__(values)
+        self.times = times
+
+
+def ott_value(raw, sensor):
+    # IGS DcpMessageParser.IsOttFlag: evaluate BEFORE applying decimal scale.
+    if raw < -32700:
+        return None, False, f'Bandera OTT: {raw}'
+    return scaled_gs300_value(raw, sensor)
+
+
+def ott_blocks(payload, convert, received=None):
     data = payload if isinstance(payload, bytes) else payload.encode('ascii')
-    data = data.strip(b' \r\n')
+    data = data.rstrip(b' \r\n')
     if data.startswith(b'bB'):
         raise ValueError('Catálogo OTT pero cabecera bB: revisar tipo, no autodetectar')
     # Only the observed OTA envelope is accepted; arbitrary offsets are unsafe.
-    if not data.startswith(b'"OTA') or len(data) <= 5:
+    if len(data) <= 5 or data[1:4] != b'OTA' or data[0] not in (32, 34, 96, 98) or data[4:5] != b'@':
         raise ValueError('Cabecera OTT no soportada')
+    if any(not 32 <= ch <= 127 for ch in data[5:]):
+        raise ValueError('OTT: caracteres inválidos')
     raw = convert(data[5:])
     if len(raw) < 8:
         raise ValueError('OTT incompleto')
+    epoch = dt.datetime(2000, 1, 1, tzinfo=dt.timezone.utc)
+    stamp = epoch + dt.timedelta(seconds=struct.unpack_from('<i', raw)[0])
+    if received is not None:
+        received = received.replace(tzinfo=dt.timezone.utc) if received.tzinfo is None else received.astimezone(dt.timezone.utc)
+        if stamp < received - dt.timedelta(days=7) or stamp > received + dt.timedelta(minutes=5):
+            raise ValueError('OTT: fecha interna fuera de ventana de recepción (-7 días / +5 minutos)')
     pos, blocks = 4, []
     while pos < len(raw):
-        if len(raw)-pos == 1 and raw[pos] == 0:
+        if len(raw)-pos == 1 and raw[pos] in (0, 32):
             break  # Zero padding from six-to-eight-bit packing.
+        if raw[pos:] in (b'\x20\x00', b'\x20\x00\x00'):
+            break  # IGS termination word (32), optionally followed by padding.
         if len(raw)-pos < 4:
             raise ValueError('OTT: cola sin formato confirmado o cabecera de bloque truncada')
         interval, count = struct.unpack_from('<hh', raw, pos)
         pos += 4
-        if not 0 < interval <= 1440 or not 0 < count <= 1000 or pos+2*count > len(raw):
+        width = 6 if interval == 0 else 2
+        if not 0 <= interval <= 1000 or not 0 < count <= 1000 or pos+width*count > len(raw):
             raise ValueError('Bloque OTT inválido o truncado')
-        blocks.append((interval, list(struct.unpack_from('<'+'h'*count, raw, pos))))
-        pos += 2*count
+        values, times = [], []
+        for i in range(count):
+            values.append(struct.unpack_from('<h', raw, pos)[0])
+            pos += 2
+            if interval == 0:
+                sample_time = epoch + dt.timedelta(seconds=struct.unpack_from('<i', raw, pos)[0])
+                pos += 4
+                if sample_time < epoch or sample_time > stamp:
+                    raise ValueError('OTT: fecha de muestra asíncrona inválida')
+            else:
+                midnight = stamp.replace(hour=0, minute=0, second=0, microsecond=0)
+                slot = math.ceil((stamp-midnight).total_seconds() / (interval*60)) - 1
+                sample_time = midnight + dt.timedelta(minutes=(slot-(count-1-i))*interval)
+            times.append(sample_time)
+        blocks.append((interval, OttValues(values, times)))
+    if not blocks:
+        raise ValueError('OTT: mensaje sin bloques')
     return blocks

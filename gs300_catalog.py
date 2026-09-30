@@ -67,7 +67,7 @@ def load_sensors(connection):
             WHERE E.ACTIVO=1 AND S.ACTIVO=1 ORDER BY E.IDASIGNADO,S.NUMEROSENSOR''')
         result = {}
         for code, number, name, decimals, period, low, high, order, unit, calculated, decoder in cur:
-            if number is None or decimals is None or period is None or float(period) <= 0:
+            if number is None or decimals is None or period is None or float(period) < 0 or (float(period) == 0 and decoder != 'OTTBinario'):
                 raise ValueError('Sensor sin periodo/decimales válidos: ' + str(code))
             sensor = dict(numero_sensor=str(number).strip().zfill(4), nombre=str(name),
                 decimales=int(decimals), periodo=float(period), posiciones=[],
@@ -85,6 +85,10 @@ def assign_positions(sensors, coverage):
     if not math.isfinite(coverage) or coverage <= 0:
         raise ValueError('Rango de datos inválido')
     position, seen = 0, set()
+    if sensors and all(s.get('decoder') == 'OTTBinario' for s in sensors):
+        # OTT carries sample counts and timestamps; GS300 position arithmetic
+        # is not applicable, especially to asynchronous (zero interval) sensors.
+        return list(sensors)
     if any(s.get('decoder') == 'GS300' for s in sensors):
         orders = [s.get('orden') for s in sensors]
         if any(o is None or not math.isfinite(float(o)) or float(o) != int(o) for o in orders) or len(set(orders)) != len(orders):

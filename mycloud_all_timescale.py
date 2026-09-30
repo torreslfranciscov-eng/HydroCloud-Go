@@ -2320,7 +2320,7 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
     if not sensores: return
     est_data = ESTACIONES.get(dcp_id, {})
     rango_tx = est_data.get("rango_transmision", 60)
-    from telemetry_decoders import ott_sensors
+    from telemetry_decoders import ott_sensors, ott_value
     sensores_activos = ott_sensors(id_asignado, ott_blocks, sensores, rango_tx)
     block_sensor_pairs = [(i, i) for i in range(len(ott_blocks))]
     conn = get_pg_conn()
@@ -2334,16 +2334,14 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
             dec = sensor["decimales"]
             per_real = interval if interval > 0 else sensor["periodo"]
             for i, raw in enumerate(raw_vals):
-                if raw == -32763.0 or raw == -32768.0: continue
-                valor = round(raw / (10 ** dec), dec)
-                ts = hora_concurrente(timestamp_goes - datetime.timedelta(minutes=i * per_real), per_real)
-                valido = not ("valor_minimo" in sensor and valor < sensor["valor_minimo"] or "valor_maximo" in sensor and valor > sensor["valor_maximo"])
+                valor, valido, description = ott_value(raw, sensor)
+                ts = raw_vals.times[i]
                 key = (ts, dcp_id, sensor["numero_sensor"])
                 registros_dict[key] = (
                     ts, dcp_id, id_asignado, sensor["numero_sensor"],
                     sensor["nombre"].lower().replace(" ", "_"), valor,
                     sensor.get("tipo", sensor["nombre"]).lower(),
-                    valido, "OK" if valido else "Fuera de rango",
+                    valido, description,
                     ts.year, ts.month, ts.day, ts.hour, ts.minute
                 )
         registros_batch = list(registros_dict.values())
@@ -2372,6 +2370,7 @@ def insertar_datos_ott(dcp_id: str, id_asignado: str, timestamp_goes: datetime.d
                         descripcion = EXCLUDED.descripcion, anio = EXCLUDED.anio,
                         mes = EXCLUDED.mes, dia = EXCLUDED.dia, hora = EXCLUDED.hora, minuto = EXCLUDED.minuto
                 """, registros_batch, page_size=500)
+            _actualizar_ultimas_mediciones_oracle(cur, registros_batch)
             conn.commit()
             print(f"[PG] {len(registros_batch)} registros OTT insertados para {dcp_id}")
             ts_inicio = hora_concurrente(timestamp_goes - datetime.timedelta(minutes=rango_tx), 60)
@@ -2910,7 +2909,7 @@ def decode_vaisala_text(payload: bytes, msg_timestamp: datetime.datetime):
 
 def decode_ott_binary(payload, dt_transmition_time):
     from telemetry_decoders import ott_blocks
-    return ott_blocks(payload, ConvertFrom6BitsTo8Bits)
+    return ott_blocks(payload, ConvertFrom6BitsTo8Bits, dt_transmition_time)
 
 
 def ConvertFrom6BitsSutron(binaryDataMsg):
