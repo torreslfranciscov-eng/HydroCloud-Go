@@ -238,9 +238,20 @@ def ott_sensors(station, blocks, sensors, coverage):
         if len(ordered) != len(blocks):
             raise ValueError('OTT: cantidad de bloques no coincide con Sensor')
     else:
-        ordered = ordered_sensors(active, profile(station).get('ott_order'), len(blocks))
+        raise ValueError('OTT: Sensor.Orden ausente, inválido o duplicado; no se usan perfiles supuestos')
+    ids = [s['numero_sensor'] for s in ordered]
+    if len(set(ids)) != len(ids):
+        raise ValueError('OTT: número de sensor duplicado')
+    for sensor in ordered:
+        decimals = sensor.get('decimales')
+        if decimals is None or not math.isfinite(float(decimals)) or float(decimals) != int(decimals) or not 0 <= decimals <= 5:
+            raise ValueError('OTT: PuntoDecimal inválido en Sensor')
+        if not sensor.get('nombre') or not math.isfinite(float(sensor['periodo'])) or sensor['periodo'] < 0:
+            raise ValueError('OTT: nombre o periodo inválido en Sensor')
+        if 'voltaje' in sensor['nombre'].lower() and str(sensor.get('unidad','')).upper() != 'V':
+            raise ValueError('OTT: voltaje sin unidad V confirmada en Sensor')
     for (interval, values), sensor in zip(blocks, ordered):
-        if interval != 0 and (interval != sensor['periodo'] or len(values) * interval != coverage):
+        if interval != 0 and (interval != sensor['periodo'] or len(values) * interval > coverage):
             raise ValueError('OTT: intervalo/cantidad de muestras no coincide con catálogo')
     return ordered
 
@@ -280,8 +291,11 @@ def ott_blocks(payload, convert, received=None):
             raise ValueError('OTT: fecha interna fuera de ventana de recepción (-7 días / +5 minutos)')
     pos, blocks = 4, []
     while pos < len(raw):
-        if len(raw)-pos == 1 and raw[pos] in (0, 32):
-            break  # Zero padding from six-to-eight-bit packing.
+        if len(raw)-pos <= 2:
+            # IGS ParseOttDcpMessage stops when Position+2 >= Length before
+            # reading the next interval. These are residual bytes, not samples.
+            # Truncated declared samples are still rejected below.
+            break
         if raw[pos:] in (b'\x20\x00', b'\x20\x00\x00'):
             break  # IGS termination word (32), optionally followed by padding.
         if len(raw)-pos < 4:
@@ -289,7 +303,7 @@ def ott_blocks(payload, convert, received=None):
         interval, count = struct.unpack_from('<hh', raw, pos)
         pos += 4
         width = 6 if interval == 0 else 2
-        if not 0 <= interval <= 1000 or not 0 < count <= 1000 or pos+width*count > len(raw):
+        if not 0 <= interval <= 1000 or not 0 <= count <= 1000 or pos+width*count > len(raw):
             raise ValueError('Bloque OTT inválido o truncado')
         values, times = [], []
         for i in range(count):

@@ -68,7 +68,7 @@ class DecoderTests(unittest.TestCase):
     def test_ott_complete_and_truncated(self):
         raw=b'\0'*4+struct.pack('<hhhh',30,2,2920,2913)
         self.assertEqual(d.ott_blocks(b'"OTA@abc',lambda _:raw),[(30,[2920,2913])])
-        for damaged in [raw[:-2],raw[:4]+struct.pack('<hh',30,3)+raw[8:],raw+b'\x01']:
+        for damaged in [raw[:-2],raw[:4]+struct.pack('<hh',30,3)+raw[8:],raw+b'\x01\x02\x03']:
             with self.assertRaises(ValueError):d.ott_blocks(b'"OTA@abc',lambda _:damaged)
         with self.assertRaises(ValueError):d.ott_blocks(b'bB1Ftest',lambda _:raw)
 
@@ -77,6 +77,8 @@ class DecoderTests(unittest.TestCase):
         with patch.object(d,'profile',return_value={}):
             with self.assertRaises(ValueError):d.ott_sensors('test',[(30,[1,2])],sensors,60)
         with patch.object(d,'profile',return_value={'ott_order':['0001'],'tables':{'2':['0001']}}):
+            with self.assertRaises(ValueError):d.ott_sensors('test',[(30,[1,2])],sensors,60)
+            sensors[0].update(orden=1,decimales=2,nombre='Nivel')
             self.assertEqual(d.ott_sensors('test',[(30,[1,2])],sensors,60),sensors)
             with self.assertRaises(ValueError):d.ott_sensors('test',[(30,[1,2,3,4])],sensors,60)
             self.assertEqual(d.record_sensors('test',d.Values([23.4],'2'),sensors),sensors)

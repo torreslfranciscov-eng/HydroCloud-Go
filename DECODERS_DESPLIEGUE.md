@@ -136,6 +136,31 @@ previa como referencia, pero no restaurar su decodificación heurística para
 solucionar un rechazo de configuración.
 # OTT: corrección basada en IGS LRGS C# (30/09/2026)
 
+## Revisión integral posterior: catálogo y trama
+
+La fuente OTT es `HYDROCLOUD.SENSOR`, unida por `IDESTACION` a `ESTACION`,
+`IDTIPOSENSOR` a `TIPOSENSOR` e `IDUNIDADMEDIDA` a `UNIDADMEDIDA`.
+La posición es `Sensor.Orden`; se excluyen tipos calculados. No hay fallback a
+`ott_order` en JSON: orden ausente/duplicado, canales discordantes, decimales
+fuera de 0..5 o voltaje sin unidad V impiden escribir. No se inventan escalas.
+
+El C# se detiene si quedan <=2 bytes antes del siguiente intervalo; se reproduce
+esa terminación únicamente después de bloques completos. Una muestra declarada
+truncada sigue siendo error. Los bloques de cantidad cero y las series más cortas
+que el rango se admiten porque la cantidad está explícita en la trama; no se rellenan.
+
+Se corrigieron en Oracle 19 rangos (60 a 120 min), cuatro periodos de sensores
+de Barretal 1/2 (10 a 60 min), y las asignaciones de Jonuta y Chicayán a GS300
+por doce tramas B1 concordantes con el catálogo completo. No se modificaron tipos,
+nombres, unidades, escalas ni orden. Respaldos locales `ott-config-backup-*.json`.
+Los demás B1 con cantidades discordantes siguen bloqueados.
+
+Herramientas: `audit_ott_catalog.py`, `reconcile_ott_catalog.py`,
+`reconcile_b1_catalog.py`; reconciliaciones de solo lectura por defecto.
+`--apply` requiere respaldo nuevo y validación previa de la evidencia.
+Consultar `OTT_REVISION_20260930.md` para la cobertura y los pendientes; compatibilidad
+de muestras revisadas no certifica sensores físicos ni todas las tramas futuras.
+
 Referencia aportada: `LRGS_VS15_24062017_mod.rar`,
 `igs.lrgs/Igs.Lrgs/DcpMessageParser.cs` y `NativeDcpMessage.cs`.
 No se incluye el archivo RAR en el despliegue.

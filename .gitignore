@@ -23,3 +23,6 @@ dds_last/
 *-voltage-backup-*.json
 decoder-audit-*.json
 gs300-audit-*.json
+ott-audit-*.json
+ott-config-backup-*.json
+LRGS_VS15_24062017_mod.rar
