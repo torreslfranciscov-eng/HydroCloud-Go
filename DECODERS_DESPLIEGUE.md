@@ -156,3 +156,12 @@ rechazado. Agua Salada: cola no interpretada, pendiente. No se certifican todas
 las variantes OTT. La tabla Sensor actual no contiene las dos ecuaciones lineales
 opcionales del C#; no se inventan calibraciones. No se reparó histórico ni se desplegó
 como parte de esta validación local.
+
+Publicación posterior: corrección enviada a `main` en `b7fe16a`.
+Reparación autorizada posterior: `repair_ott_voltage.py` reconstruyó la batería
+0011 de Acueducto (15B94430), ventana de siete días: 85 actualizaciones y 49
+inserciones; 134 muestras verificadas desde otra conexión. Dos filas antiguas
+sin evidencia se conservaron. Respaldo local privado:
+`LG44-voltage-backup-ott-applied-20260930.json` (ignorado por Git).
+No se repararon otros sensores, otras estaciones ni agregados históricos.
+El envío a GitLab no certifica por sí mismo que Render haya arrancado esa versión.
