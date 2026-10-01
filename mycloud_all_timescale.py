@@ -2251,35 +2251,22 @@ def insertar_datos_cila(dcp_id: str, id_asignado: str, decoded_cila: dict, range
     """Inserta datos decodificados de CILA en la base de datos."""
     sensores = SENSORES.get(id_asignado)
     if not sensores: return
-    by_code = {s['numero_sensor']: s for s in sensores}
-    from telemetry_decoders import profile
-    aliases = profile(id_asignado).get('channels', {})
-    mapped_codes = [aliases.get(code, code.zfill(4)) for code in decoded_cila]
-    if len(set(mapped_codes)) != len(mapped_codes):
-        raise ValueError('Dos canales textuales apuntan al mismo sensor')
-    if any(aliases.get(code, code.zfill(4)) not in by_code for code in decoded_cila):
-        raise ValueError('Canales textuales sin correspondencia explícita en catálogo')
+    from telemetry_decoders import named_sensor_channels, engineering_value
+    mapped, rejected = named_sensor_channels(id_asignado, decoded_cila, sensores)
+    if rejected:
+        print(f'[MENSAJE PARCIAL] {dcp_id}: canales no guardados: {rejected}')
     conn = get_pg_conn()
     if not conn: return
     try:
         cur = conn.cursor()
         registros_batch = []
         for code, samples in decoded_cila.items():
-            padded_code = aliases.get(code, code.zfill(4))
-            sensor = next((s for s in sensores if s["numero_sensor"] == padded_code), None)
+            sensor = mapped.get(code)
             if not sensor: continue
             for ts_sample, valor_raw in samples:
                 if valor_raw == -32763.0 or valor_raw == -32768.0: continue
-                valor = float(valor_raw)
+                valor, valido, descripcion = engineering_value(valor_raw, sensor)
                 ts = ts_sample  # Keep the timestamp carried by the channel block.
-                valido = True
-                descripcion = "OK"
-                if "valor_minimo" in sensor and valor < sensor["valor_minimo"]:
-                    valido = False
-                    descripcion = f"Bajo: {valor} < {sensor['valor_minimo']}"
-                elif "valor_maximo" in sensor and valor > sensor["valor_maximo"]:
-                    valido = False
-                    descripcion = f"Alto: {valor} > {sensor['valor_maximo']}"
                 registros_batch.append((
                     ts, dcp_id, id_asignado, sensor["numero_sensor"],
                     sensor["nombre"].lower().replace(" ", "_"),
@@ -2300,6 +2287,8 @@ def insertar_datos_cila(dcp_id: str, id_asignado: str, decoded_cila: dict, range
                     descripcion = EXCLUDED.descripcion, anio = EXCLUDED.anio,
                     mes = EXCLUDED.mes, dia = EXCLUDED.dia, hora = EXCLUDED.hora, minuto = EXCLUDED.minuto
             """, registros_batch, page_size=500)
+            if DB_BACKEND == 'oracle':
+                _actualizar_ultimas_mediciones_oracle(cur, registros_batch)
             conn.commit()
             print(f"[PG] {len(registros_batch)} registros CILA insertados para {dcp_id}")
             
@@ -2392,7 +2381,7 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
     if not conn: return
     try:
         cur = conn.cursor()
-        from telemetry_decoders import record_sensors
+        from telemetry_decoders import record_sensors, engineering_value
         sensores_filtrados = record_sensors(id_asignado, valores, sensores)
         registros_batch = []
         for idx, valor_raw in enumerate(valores):
@@ -2400,14 +2389,13 @@ def insertar_datos_por_registro(dcp_id: str, id_asignado: str, timestamp_record:
             sensor = sensores_filtrados[idx]
             if sensor is None: continue  # Explicitly unassigned profile column.
             if valor_raw == -32763.0 or valor_raw == -32768.0: continue
-            valor = float(valor_raw)  # Text already contains engineering-unit decimals.
-            valido = not ("valor_minimo" in sensor and valor < sensor["valor_minimo"] or "valor_maximo" in sensor and valor > sensor["valor_maximo"])
+            valor, valido, descripcion = engineering_value(valor_raw, sensor)
             ts = timestamp_record
             registros_batch.append((
                 ts, dcp_id, id_asignado, sensor["numero_sensor"],
                 sensor["nombre"].lower().replace(" ", "_"), valor,
                 sensor.get("tipo", sensor["nombre"]).lower(),
-                valido, "OK" if valido else "Fuera de rango",
+                valido, descripcion[:200],
                 ts.year, ts.month, ts.day, ts.hour, ts.minute
             ))
         if registros_batch:

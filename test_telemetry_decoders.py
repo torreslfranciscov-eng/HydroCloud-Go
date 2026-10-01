@@ -65,6 +65,30 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(len(data['NI']),2)
         self.assertEqual(data['N2'][0][1],4.55)
 
+    def test_named_catalog_ids_partial_without_column_shift(self):
+        data=d.named_records(b'NI 10 4.60 4.61\r\nTI 60 28.5\r\nVB 60 13.93',NOW)
+        sensors=[dict(numero_sensor='00NI',nombre='Nivel',unidad='m',periodo=10),
+                 dict(numero_sensor='00VB',nombre='Voltaje de batería',unidad='V',periodo=60)]
+        with patch.object(d,'profile',return_value={}):
+            mapped,rejected=d.named_sensor_channels('x',data,sensors)
+        self.assertEqual({k:v['numero_sensor'] for k,v in mapped.items()},{'NI':'00NI','VB':'00VB'})
+        self.assertEqual(set(rejected),{'TI'})
+        sensors[0]['periodo']=15
+        with patch.object(d,'profile',return_value={}):
+            mapped,rejected=d.named_sensor_channels('x',data,sensors)
+        self.assertEqual(set(mapped),{'VB'})
+        self.assertIn('NI',rejected)
+        sensors[1]['periodo']=10
+        with patch.object(d,'profile',return_value={}):
+            with self.assertRaises(ValueError):d.named_sensor_channels('x',data,sensors)
+
+    def test_named_duplicate_or_unknown_does_not_guess(self):
+        data={'NI':[(NOW,4.6)]}
+        sensor=dict(numero_sensor='00NI',nombre='Nivel',unidad='m',periodo=10)
+        with patch.object(d,'profile',return_value={}):
+            with self.assertRaises(ValueError):d.named_sensor_channels('x',data,[sensor,sensor])
+            with self.assertRaises(ValueError):d.named_sensor_channels('x',data,[])
+
     def test_ott_complete_and_truncated(self):
         raw=b'\0'*4+struct.pack('<hhhh',30,2,2920,2913)
         self.assertEqual(d.ott_blocks(b'"OTA@abc',lambda _:raw),[(30,[2920,2913])])

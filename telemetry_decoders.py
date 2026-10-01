@@ -5,6 +5,7 @@ import math
 import os
 import re
 import struct
+import unicodedata
 from pathlib import Path
 
 MISSING = -32763.0
@@ -69,9 +70,18 @@ def scaled_gs300_value(raw, sensor):
     if raw is None:
         return None, False, 'Dato faltante en trama (///)'
     value=round(raw/(10**sensor['decimales']),sensor['decimales'])
+    return engineering_value(value, sensor)
+
+
+def engineering_value(value, sensor):
+    """Validate engineering units without rescaling textual measurements."""
+    if value is None or not math.isfinite(float(value)):
+        return None, False, 'Dato no finito o faltante'
+    value = float(value)
     low=sensor.get('valor_minimo',-math.inf)
     high=sensor.get('valor_maximo',math.inf)
-    voltage='voltaje' in sensor['nombre'].lower() and ('bater' in sensor['nombre'].lower() or 'panel' in sensor['nombre'].lower())
+    name = ''.join(c for c in unicodedata.normalize('NFKD', sensor['nombre'].casefold()) if not unicodedata.combining(c))
+    voltage='voltaje' in name and ('bater' in name or 'panel' in name)
     if voltage:
         low=max(0,low)
     valid=low<=value<=high
@@ -136,6 +146,12 @@ def text_records(payload, received, decoder):
     return records
 
 
+class NamedSamples(list):
+    def __init__(self, samples, interval):
+        super().__init__(samples)
+        self.interval = interval
+
+
 def named_records(payload, received, cila=False):
     text = payload.decode('ascii').strip(' \r\n"')
     result = {}
@@ -164,7 +180,7 @@ def named_records(payload, received, cila=False):
             latest = align(received, interval)
         if interval <= 0:
             raise ValueError('Intervalo textual inválido')
-        result[code] = [(latest - dt.timedelta(minutes=i * interval), number(value)) for i, value in enumerate(parts)]
+        result[code] = NamedSamples([(latest - dt.timedelta(minutes=i * interval), number(value)) for i, value in enumerate(parts)], interval)
     if not result:
         raise ValueError('Mensaje sin canales')
     return result
@@ -178,6 +194,39 @@ def profile(station):
         with open(path, encoding='utf-8') as handle:
             profiles.update(json.load(handle))
     return profiles.get(station, {})
+
+
+def named_sensor_channels(station, decoded, sensors):
+    """Map labeled channels only by explicit catalog identifier, never position.
+
+    Unknown independent channels do not shift or invalidate known channels.
+    Return their rejection reasons so partial messages are explicitly reported.
+    """
+    by_id = {s['numero_sensor']: s for s in sensors}
+    if len(by_id) != len(sensors):
+        raise ValueError('NumeroSensor duplicado en catálogo textual')
+    aliases = profile(station).get('channels', {})
+    mapped, rejected, used = {}, {}, set()
+    for code, samples in decoded.items():
+        number = aliases.get(code, code.zfill(4))
+        if number in used:
+            raise ValueError('Dos canales textuales apuntan al mismo sensor')
+        used.add(number)
+        sensor = by_id.get(number)
+        if sensor is None:
+            rejected[code] = 'Canal ausente de Sensor'
+            continue
+        if not sensor.get('unidad') or sensor.get('calculada') or sensor.get('nombre', '').casefold() == 'indefinido':
+            rejected[code] = 'Unidad o tipo de sensor sin confirmar'
+            continue
+        interval = getattr(samples, 'interval', None)
+        if (interval is not None and interval != sensor.get('periodo')) or any(abs((a[0]-b[0]).total_seconds()/60-sensor['periodo']) > 1e-6 for a,b in zip(samples,samples[1:])):
+            rejected[code] = 'Periodo del canal distinto de Sensor'
+            continue
+        mapped[code] = sensor
+    if not mapped:
+        raise ValueError('Ningún canal textual tiene correspondencia comprobada en Sensor')
+    return mapped, rejected
 
 
 def ordered_sensors(sensors, order, count):

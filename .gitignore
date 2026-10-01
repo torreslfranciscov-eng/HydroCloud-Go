@@ -25,4 +25,6 @@ decoder-audit-*.json
 gs300-audit-*.json
 ott-audit-*.json
 ott-config-backup-*.json
+goes-lrgs-backup-*.json
+live-ingestion-audit.json
 LRGS_VS15_24062017_mod.rar
