@@ -299,6 +299,17 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 64)
         validate_words([0] * 64, mapped, station='LOMAPUE004')
 
+    def test_macayo_margen_izquierda_layout_uses_97_words(self):
+        periods = [10] * 11 + [60] + [10] * 5
+        sensors = [
+            dict(numero_sensor=str(order).zfill(4), periodo=period,
+                 orden=order, decoder='GS300', calculada=0)
+            for order, period in enumerate(periods, start=1)
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 97)
+        validate_words([0] * 97, mapped, station='MMIZTAB018')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
