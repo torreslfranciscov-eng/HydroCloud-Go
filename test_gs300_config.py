@@ -230,6 +230,20 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 110)
         validate_words([0] * 110, mapped, station='HUIXT07077')
 
+    def test_jamapa_layout_accepts_final_logger_temperature(self):
+        sensors = [
+            dict(numero_sensor=str(number).zfill(4), periodo=period,
+                 orden=order, decoder='GS300', calculada=0)
+            for order, (number, period) in enumerate(
+                [(number, 10) for number in range(1, 14)] + [(19, 60)],
+                start=1)
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 79)
+        validate_words([0] * 79 + [3000], mapped, station='JAMAVER008')
+        with self.assertRaisesRegex(ValueError, 'sufijo auxiliar inválido'):
+            validate_words([0] * 79 + [1000], mapped, station='JAMAVER008')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
