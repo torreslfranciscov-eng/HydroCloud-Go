@@ -31,6 +31,10 @@ GS300_AUXILIARY_SUFFIX = {
         'words': 1,
         'allowed_ranges': ((1500, 6000),),
     },
+    'GONZTAM001': {
+        'words': 2,
+        'allowed_ranges': ((1500, 6000), (1500, 6000)),
+    },
 }
 
 # Some station programs omit configured trailing channels from the wire.  For
