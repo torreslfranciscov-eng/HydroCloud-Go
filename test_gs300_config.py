@@ -158,6 +158,25 @@ class GS300Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_words([0] * 44, mapped, station='OTRA')
 
+    def test_francisco_madero_internal_temperature_suffix(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300')
+            for number, period, order in (
+                ('0031', 10, 1), ('0036', 10, 2), ('0041', 10, 3),
+                ('0046', 10, 4), ('0047', 10, 5), ('0048', 10, 8),
+                ('0049', 10, 9), ('0901', 60, 10), ('0902', 10, 11),
+                ('0903', 10, 12),
+            )
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 55)
+        validate_words([0] * 55 + [2750], mapped, station='FCOITAB004')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 55 + [1499], mapped, station='FCOITAB004')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 56, mapped, station='OTRA')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),

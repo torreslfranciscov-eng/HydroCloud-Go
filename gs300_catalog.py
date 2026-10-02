@@ -27,6 +27,10 @@ GS300_AUXILIARY_SUFFIX = {
         # and the second within -559..119.
         'allowed_ranges': ((-10000, 2000),) * 6 + ((-1000, 1000),) * 6,
     },
+    'FCOITAB004': {
+        'words': 1,
+        'allowed_ranges': ((1500, 6000),),
+    },
 }
 
 # Some station programs omit configured trailing channels from the wire.  For
