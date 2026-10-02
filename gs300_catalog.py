@@ -20,6 +20,13 @@ GS300_AUXILIARY_SUFFIX = {
         'words': 2,
         'allowed_ranges': ((1500, 6000), (1500, 6000)),
     },
+    'ESCODISI05': {
+        'words': 12,
+        # Two six-word diagnostic blocks omitted from the public sensor list.
+        # Seven days of valid frames keep the first block within -7736..1276
+        # and the second within -559..119.
+        'allowed_ranges': ((-10000, 2000),) * 6 + ((-1000, 1000),) * 6,
+    },
 }
 
 # Some station programs omit configured trailing channels from the wire.  For

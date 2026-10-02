@@ -138,6 +138,26 @@ class GS300Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_words([0] * 54, mapped, station='OTRA')
 
+    def test_escotadura_diagnostic_auxiliary_suffix(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0002', periodo=10, orden=2, decoder='GS300'),
+            dict(numero_sensor='0005', periodo=60, orden=7, decoder='GS300'),
+            dict(numero_sensor='0006', periodo=60, orden=8, decoder='GS300'),
+            dict(numero_sensor='0007', periodo=10, orden=9, decoder='GS300'),
+            dict(numero_sensor='0008', periodo=10, orden=10, decoder='GS300'),
+            dict(numero_sensor='0009', periodo=10, orden=11, decoder='GS300'),
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 32)
+        suffix = [-185, 0, 185, 185, 0, 0, -18, 0, 18, 0, -18, 0]
+        validate_words([0] * 32 + suffix, mapped, station='ESCODISI05')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 32 + [2001] + suffix[1:], mapped,
+                           station='ESCODISI05')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 44, mapped, station='OTRA')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
