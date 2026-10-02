@@ -15,6 +15,7 @@ public sealed class StationAvailability(IConfiguration config,TimeProvider clock
     {
         var all=states.ToList();
         if(all.Contains("recent"))return "recent";
+        if(all.Contains("corrupt"))return "corrupt";
         if(all.Contains("unknown")||all.Count==0)return "unknown";
         if(all.Contains("week"))return "week";
         if(all.Contains("historical"))return "historical";
@@ -52,7 +53,8 @@ public sealed class StationAvailability(IConfiguration config,TimeProvider clock
                     {
                         // The DCP prefix uses the existing index; no full ID_ASIGNADO scan.
                         const string match="DCP_ID=:dcp AND ID_ASIGNADO=:code AND TS<=:nowTime";
-                        using var cmd=new OracleCommand($"SELECT CASE WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND SYS_EXTRACT_UTC(TS)>=SYS_EXTRACT_UTC(:dayTime) AND ROWNUM=1) THEN 'recent' WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND SYS_EXTRACT_UTC(TS)>=SYS_EXTRACT_UTC(:weekTime) AND ROWNUM=1) THEN 'week' WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND ROWNUM=1) THEN 'historical' ELSE 'empty' END FROM DUAL",c){BindByName=true,CommandTimeout=6};
+                        const string rawMatch="DCP_ID=:dcp AND SYS_EXTRACT_UTC(TIMESTAMP_MSG)<=SYS_EXTRACT_UTC(:nowTime) AND SYS_EXTRACT_UTC(TIMESTAMP_MSG)>=SYS_EXTRACT_UTC(:dayTime) AND RAW_MESSAGE IS NOT NULL AND INSTR(RAW_MESSAGE,'Missing message from')=0 AND INSTR(RAW_MESSAGE,'SATLINK DATA BUFFER EMPTY')=0";
+                        using var cmd=new OracleCommand($"SELECT CASE WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND SYS_EXTRACT_UTC(TS)>=SYS_EXTRACT_UTC(:dayTime) AND ROWNUM=1) THEN 'recent' WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_HEADERS WHERE {rawMatch} AND ROWNUM=1) THEN 'corrupt' WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND SYS_EXTRACT_UTC(TS)>=SYS_EXTRACT_UTC(:weekTime) AND ROWNUM=1) THEN 'week' WHEN EXISTS (SELECT 1 FROM MYCLOUD_TS.DCP_DATOS WHERE {match} AND ROWNUM=1) THEN 'historical' ELSE 'empty' END FROM DUAL",c){BindByName=true,CommandTimeout=6};
                         cmd.Parameters.Add("dcp",OracleDbType.Varchar2).Value=dcp;cmd.Parameters.Add("code",OracleDbType.Varchar2).Value=entry.Value.Code;
                         cmd.Parameters.Add("nowTime",OracleDbType.TimeStampTZ).Value=new OracleTimeStampTZ(now.UtcDateTime,"+00:00");
                         cmd.Parameters.Add("dayTime",OracleDbType.TimeStampTZ).Value=new OracleTimeStampTZ(now.AddDays(-1).UtcDateTime,"+00:00");

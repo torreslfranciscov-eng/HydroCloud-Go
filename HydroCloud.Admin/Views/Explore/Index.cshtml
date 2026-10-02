@@ -43,6 +43,7 @@
                 <select id="map-filter" class="cyber-select" style="padding:6px 12px;font-size:0.82rem">
                     <option value="all">Todas las estaciones</option>
                     <option value="recent">🟢 Transmisión reciente (≤24 h)</option>
+                    <option value="corrupt">🟠 Transmite · contenido inválido</option>
                     <option value="week">🟡 Datos de 1–7 días</option>
                     <option value="historical">🔴 Solo histórico (>7 días)</option>
                     <option value="empty">⚪ Sin mediciones asociadas</option>
@@ -53,6 +54,7 @@
         <!-- LEYENDA RÁPIDA DE SALUD -->
         <div style="display:flex;gap:16px;flex-wrap:wrap;background:#090f18;padding:10px 16px;border-radius:8px;margin-bottom:14px;border:1px solid #162438;font-size:0.8rem">
             <span>🟢 datos ≤24 h: <b id="count-recent" style="color:var(--cyber-green)">—</b></span>
+            <span>🟠 contenido inválido: <b id="count-corrupt" style="color:#c2410c">—</b></span>
             <span>🟡 1–7 días: <b id="count-week" style="color:var(--cyber-yellow)">—</b></span>
             <span>🔴 >7 días: <b id="count-historical" style="color:var(--cyber-red)">—</b></span>
             <span>⚪ Sin mediciones: <b id="count-empty" style="color:var(--text-muted)">—</b></span>

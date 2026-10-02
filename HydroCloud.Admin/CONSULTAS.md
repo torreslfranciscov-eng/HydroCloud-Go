@@ -39,15 +39,19 @@ La portada compacta elimina el bloque de bienvenida y la navegación pública re
 
 ### Semáforo de presencia de mediciones
 
-Consulta directa de `DCP_DATOS`, enlazada por `ID_ASIGNADO` y los `IDSATELITAL` configurados en `DATOSGOES`. Usa el prefijo DCP del índice existente, cuatro consultas concurrentes como máximo, plazo total de 55 segundos y caché compartida de dos minutos. Los marcadores aparecen antes de terminar la verificación.
+Consulta directa de `DCP_DATOS` y `DCP_HEADERS`, enlazada por `ID_ASIGNADO` y los `IDSATELITAL` configurados en `DATOSGOES`. Usa el prefijo DCP del índice existente, cuatro consultas concurrentes como máximo, plazo total de 55 segundos y caché compartida. Los marcadores aparecen antes de terminar la verificación.
 
 - Verde: existe alguna medición en las últimas 24 horas.
+- Naranja: existe una transmisión GOES real en las últimas 24 horas, pero no
+  produjo mediciones decodificadas. Indica contenido truncado, corrupto o
+  incompatible con el decodificador o catálogo configurado; no equivale a una
+  estación apagada.
 - Amarillo: existe alguna medición en siete días, pero ninguna en 24 horas.
 - Rojo: existe histórico asociado, pero ninguna medición en siete días.
 - Rojo oscuro: no se encontraron mediciones asociadas a la clave y los DCP actualmente configurados. No equivale a afirmar que nunca haya datos con otra clave/DCP histórico.
 - Gris: falta vínculo DCP verificable o una consulta falló/agotó su tiempo. Nunca se interpreta un error como ausencia de datos.
 
-Ventanas UTC móviles calculadas en servidor; se excluyen timestamps futuros. Para varios DCP se combina la evidencia; un error sin evidencia de datos en 24 horas deja el estado sin verificar. Es presencia de filas, no certificación de calidad, regularidad ni salud de transmisión. La modalidad pública solo recibe categorías, no fechas ni valores antiguos. Estaciones GPRS/radio sin vínculo GOES quedan sin verificar hasta contar con un índice/asociación adecuado para su fuente. No se usa `ULTIMAS_MEDICIONES`: la inspección encontró ese resumen atrasado frente a la tabla de lecturas.
+Ventanas UTC móviles calculadas en servidor; se excluyen timestamps futuros. Para varios DCP se combina la evidencia; un error sin evidencia de transmisión o datos en 24 horas deja el estado sin verificar. El verde consulta `DCP_DATOS`; el naranja exige una fila reciente y real en `DCP_HEADERS` —excluye avisos `Missing message` y `SATLINK DATA BUFFER EMPTY`— sin medición reciente decodificada. La modalidad pública solo recibe categorías, no fechas ni valores antiguos. Estaciones GPRS/radio sin vínculo GOES quedan sin verificar hasta contar con un índice/asociación adecuado para su fuente. No se usa `ULTIMAS_MEDICIONES`: la inspección encontró ese resumen atrasado frente a la tabla de lecturas.
 
 [Leaflet 1.9.4](https://leafletjs.com/download.html) se sirve localmente con su licencia en `wwwroot/vendor/leaflet`. El mapa base se carga automáticamente al abrir la portada; el usuario recibe aviso del proveedor externo. OpenStreetMap recibe la IP/origen de la petición de teselas, aunque el portal no registre IP en sus métricas. Se mantienen atribución y encabezado Referer según la [política de teselas de OSM](https://operations.osmfoundation.org/policies/tiles/). Sin mapa base, el selector de estaciones y las consultas siguen funcionando. Antes de despliegues con tráfico considerable, contratar/configurar un proveedor adecuado; el servicio comunitario no tiene SLA.
 

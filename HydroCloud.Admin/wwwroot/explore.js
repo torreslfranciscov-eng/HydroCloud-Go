@@ -14,9 +14,9 @@
   period.addEventListener('change',updatePeriod);updatePeriod();
   let stations=[],map=null,markers=null,mapFitted=false,result=null,lastQuery=null,busy=false;
   const signals=new Map();
-  const signalColors={recent:'#15803d',week:'#d39100',historical:'#dc2626',empty:'#7f1d1d',unknown:'#64748b'};
-  const signalLabels={recent:'Datos en las últimas 24 horas',week:'Datos de 1 a 7 días; sin mediciones en 24 h',historical:'Con histórico; sin mediciones en los últimos 7 días',empty:'Sin mediciones asociadas a la clave y DCP configurados',unknown:'Sin verificar: vínculo no disponible o consulta fallida'};
-  const signalShort={recent:'≤24 h',week:'1–7 días',historical:'Solo histórico',empty:'Sin mediciones asociadas',unknown:'Sin verificar'};
+  const signalColors={recent:'#15803d',corrupt:'#c2410c',week:'#d39100',historical:'#dc2626',empty:'#7f1d1d',unknown:'#64748b'};
+  const signalLabels={recent:'Datos decodificados en las últimas 24 horas',corrupt:'Recibe transmisiones, pero el contenido reciente no se puede decodificar',week:'Datos de 1 a 7 días; sin mediciones en 24 h',historical:'Con histórico; sin mediciones en los últimos 7 días',empty:'Sin mediciones asociadas a la clave y DCP configurados',unknown:'Sin verificar: vínculo no disponible o consulta fallida'};
+  const signalShort={recent:'Datos ≤24 h',corrupt:'Transmite · contenido inválido',week:'1–7 días',historical:'Solo histórico',empty:'Sin mediciones asociadas',unknown:'Sin verificar'};
   const show=(message,error=false)=>{status.textContent=message;status.className=error?'error':'';};
   function populateMap() {
     if(!map||!markers)return;markers.clearLayers();const points=[];
@@ -53,7 +53,7 @@
   }).catch(()=>{$('map-status').textContent='No fue posible cargar el catálogo. Recarga la página para reintentar.';});
   fetch('/Explore/Availability').then(async r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{
     for(const s of data.stations)signals.set(s.stationId,s.state in signalColors?s.state:'unknown');
-    $('signal-status').textContent='Mediciones verificadas: '+new Date(data.checkedAt).toLocaleTimeString()+' · ventanas de 24 h / 7 días';refreshSignals();
+    $('signal-status').textContent='Transmisiones y mediciones verificadas: '+new Date(data.checkedAt).toLocaleTimeString()+' · ventanas de 24 h / 7 días';refreshSignals();
   }).catch(()=>{$('signal-status').textContent='No se pudo verificar el semáforo. Gris no significa sin datos.';});
   function params(){
     const query=new URLSearchParams({stationId:station.value,product:$('query-product').value});
