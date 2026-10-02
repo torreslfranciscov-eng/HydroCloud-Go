@@ -4,6 +4,42 @@ import math
 import os
 
 
+# Station programs may append diagnostic words that are not user sensors.
+# Exceptions remain explicit, station-scoped and value-constrained.
+GS300_AUXILIARY_SUFFIX = {
+    '0000000G21': {'words': 12, 'allowed_values': {0, 1}},
+    '000000LG16': {
+        'words': 2,
+        'allowed_ranges': ((0, 0), (-500, 1000)),
+    },
+    'CAZLVER018': {
+        'words': 2,
+        'allowed_ranges': ((1500, 6000), (1500, 6000)),
+    },
+}
+
+# Some station programs omit configured trailing channels from the wire.  For
+# these proven layouts, preserve the Oracle sensors and represent each absent
+# word as None so ingestion stores no fabricated measurement.
+GS300_UNDEFINED_SUFFIX = {
+    '00000CFE05': 6,  # 0010, 0011 and 0012: two hourly samples each.
+    '00000CFE06': 44,  # Presa Peñitas layout: wire stops after 0004.
+}
+
+
+def valid_auxiliary_suffix(station, suffix):
+    rule = GS300_AUXILIARY_SUFFIX.get(station)
+    if not rule or len(suffix) != rule['words']:
+        return False
+    if 'allowed_values' in rule:
+        return all(value in rule['allowed_values'] for value in suffix)
+    ranges = rule.get('allowed_ranges', ())
+    return len(ranges) == len(suffix) and all(
+        low <= value <= high
+        for value, (low, high) in zip(suffix, ranges)
+    )
+
+
 def duration_minutes(value):
     parts = str(value).strip().split(':')
     if len(parts) != 3:
@@ -97,6 +133,11 @@ def assign_positions(sensors, coverage):
     else:
         ordered = sorted(sensors, key=lambda s: s['numero_sensor'])
     for sensor in ordered:
+        # Calculated/virtual sensors remain available to downstream processing,
+        # but they do not occupy words in a physical GS300 transmission.
+        if sensor.get('calculada'):
+            sensor['posiciones'] = []
+            continue
         number, period = sensor['numero_sensor'], sensor['periodo']
         if number in seen or not math.isfinite(period) or period <= 0:
             raise ValueError('Sensor duplicado o periodo inválido: ' + number)
@@ -112,8 +153,19 @@ def assign_positions(sensors, coverage):
     return ordered
 
 
-def validate_words(values, sensors):
+def validate_words(values, sensors, station=None):
     expected = sum(len(s['posiciones']) for s in sensors)
+    auxiliary = GS300_AUXILIARY_SUFFIX.get(station)
+    if auxiliary and len(values) == expected + auxiliary['words']:
+        suffix = values[expected:]
+        if valid_auxiliary_suffix(station, suffix):
+            return
+        raise ValueError(
+            f'GS300: sufijo auxiliar inválido para {station}; mensaje no insertado.')
+    undefined = GS300_UNDEFINED_SUFFIX.get(station, 0)
+    if undefined and len(values) == expected - undefined:
+        values.extend([None] * undefined)
+        return
     if expected == 0 or len(values) != expected:
         raise ValueError(f'GS300: {len(values)} valores recibidos; catálogo exige {expected}. Mensaje no insertado.')
 

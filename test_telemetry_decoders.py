@@ -30,6 +30,19 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(d.validate_decoder_payload('GS300',b'bB1A@UP\r\n'),'pseudobinary_b')
         with self.assertRaises(ValueError):d.validate_decoder_payload('OTTBinario',b'bB1A@UP')
 
+    def test_ixcamilpa_headerless_pseudobinary_is_station_scoped(self):
+        payload = b'b?zO?zO@@@'
+        self.assertEqual(d.payload_family(payload),
+                         'pseudobinary_headerless')
+        self.assertEqual(
+            d.validate_decoder_payload('GS300', payload,
+                                       station='CFE0000043'),
+            'pseudobinary_headerless')
+        self.assertEqual(d.gs300_payload_words(
+            payload, station='CFE0000043'), [-369, -369, 0])
+        with self.assertRaises(ValueError):
+            d.validate_decoder_payload('GS300', payload, station='OTRA')
+
     def test_smn_columns_decimals_and_table(self):
         row=d.text_records(b'2 17:40:00 27.5,,13.9,#2', NOW, 'SMN')[0][1]
         self.assertEqual(row,[27.5,d.MISSING,13.9,d.MISSING])

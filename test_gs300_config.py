@@ -59,6 +59,102 @@ class GS300Tests(unittest.TestCase):
         sensors[0]['orden']=None
         with self.assertRaises(ValueError):assign_positions(sensors,60)
 
+    def test_calculated_sensor_does_not_consume_wire_positions(self):
+        sensors=[
+            dict(numero_sensor='0001',periodo=10,orden=1,decoder='GS300',calculada=0),
+            dict(numero_sensor='3001',periodo=10,orden=2,decoder='GS300',calculada=1),
+            dict(numero_sensor='0901',periodo=60,orden=3,decoder='GS300',calculada=0),
+        ]
+        mapped=assign_positions(sensors,60)
+        self.assertEqual(mapped[0]['posiciones'],list(range(6)))
+        self.assertEqual(mapped[1]['posiciones'],[])
+        self.assertEqual(mapped[2]['posiciones'],[6])
+        validate_words([0]*7,mapped)
+
+    def test_el_portillo_constrained_auxiliary_suffix(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0002', periodo=60, orden=2, decoder='GS300'),
+            dict(numero_sensor='0007', periodo=10, orden=3, decoder='GS300'),
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 26)
+        validate_words([0] * 26 + [1] * 12, mapped, station='0000000G21')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 26 + [1] * 12, mapped, station='OTRA')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 26 + [2] * 12, mapped, station='0000000G21')
+
+    def test_corrales_constrained_auxiliary_suffix(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0002', periodo=10, orden=2, decoder='GS300'),
+        ] + [
+            dict(numero_sensor=str(index), periodo=60, orden=index,
+                 decoder='GS300')
+            for index in range(3, 10)
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 19)
+        validate_words([0] * 19 + [0, 336], mapped, station='000000LG16')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 19 + [1, 336], mapped, station='000000LG16')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 19 + [0, 1001], mapped, station='000000LG16')
+
+    def test_carrizal_internal_temperature_auxiliary_suffix(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0020', periodo=10, orden=2, decoder='GS300'),
+            dict(numero_sensor='0018', periodo=60, orden=3, decoder='GS300'),
+            dict(numero_sensor='0019', periodo=60, orden=4, decoder='GS300'),
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 28)
+        validate_words([0] * 28 + [2450, 3475], mapped,
+                       station='CAZLVER018')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 28 + [1499, 3475], mapped,
+                           station='CAZLVER018')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 30, mapped, station='OTRA')
+
+    def test_emiliano_zapata_missing_channels_are_undefined(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0002', periodo=10, orden=2, decoder='GS300'),
+        ] + [
+            dict(numero_sensor=str(index).zfill(4), periodo=60, orden=index,
+                 decoder='GS300')
+            for index in range(3, 13)
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 44)
+        words = [0] * 38
+        validate_words(words, mapped, station='00000CFE05')
+        self.assertEqual(len(words), 44)
+        self.assertEqual(words[-6:], [None] * 6)
+        with self.assertRaises(ValueError):
+            validate_words([0] * 38, mapped, station='OTRA')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 37, mapped, station='00000CFE05')
+
+    def test_desfogue_uses_penitas_layout_with_undefined_suffix(self):
+        sensors = [
+            dict(numero_sensor=str(index).zfill(4),
+                 periodo=10 if index in (1, 2, 3, 15, 16) else 60,
+                 orden=index, decoder='GS300')
+            for index in range(1, 17)
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 82)
+        words = list(range(38))
+        validate_words(words, mapped, station='00000CFE06')
+        self.assertEqual(words[:38], list(range(38)))
+        self.assertEqual(words[38:], [None] * 44)
+        with self.assertRaises(ValueError):
+            validate_words([0] * 39, mapped, station='00000CFE06')
+
     def test_missing_is_not_minimum_signed_word(self):
         from telemetry_decoders import gs300_words,scaled_gs300_value
         self.assertEqual(gs300_words(b'@UM@lI`@@///'),[1357,2825,-131072,None])

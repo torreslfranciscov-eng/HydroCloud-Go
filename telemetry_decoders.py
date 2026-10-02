@@ -9,6 +9,7 @@ import unicodedata
 from pathlib import Path
 
 MISSING = -32763.0
+GS300_HEADERLESS_STATIONS = {'CFE0000043'}
 
 
 def payload_family(payload):
@@ -21,6 +22,10 @@ def payload_family(payload):
         return 'ota'
     if len(data) >= 4 and data[1:3] == b'B1' and data[0] in (34, 96, 98):
         return 'pseudobinary_b'
+    if (len(data) > 1 and data[0] in (96, 98) and
+            (len(data) - 1) % 3 == 0 and
+            all(63 <= ch <= 126 for ch in data[1:])):
+        return 'pseudobinary_headerless'
     if re.match(r':?[A-Z][A-Z0-9]{1,3}\s+\d+\s+#\d+\s', text):
         return 'cila'
     if re.match(r'[A-Z][A-Z0-9]{1,3}\s+\d+\s+', text):
@@ -34,16 +39,32 @@ def payload_family(payload):
     return 'unknown'
 
 
-def validate_decoder_payload(decoder, payload):
+def gs300_payload_words(payload, station=None):
+    """Decode standard B1 or an explicitly authorized headerless variant."""
+    data = payload.strip(b' \r\n')
+    family = payload_family(data)
+    if family == 'pseudobinary_b':
+        return gs300_words(data[4:])
+    if (family == 'pseudobinary_headerless' and
+            station in GS300_HEADERLESS_STATIONS):
+        return gs300_words(data[1:])
+    raise ValueError(
+        f'Decoder GS300 incompatible con trama {family}; no se insertan mediciones')
+
+
+def validate_decoder_payload(decoder, payload, station=None):
     family = payload_family(payload)
     allowed = {'GS300': {'pseudobinary_b'}, 'OTTBinario': {'ota'},
                'GS': {'named'}, 'CILA_Text': {'cila'},
                'SMN': {'table_text', 'text'}, 'SMN_ver2': {'table_text', 'text'},
                'VAISALA_Protocol_Text': {'table_text', 'text'}}
-    if family not in allowed.get(decoder, set()):
+    headerless_allowed = (decoder == 'GS300' and
+                          family == 'pseudobinary_headerless' and
+                          station in GS300_HEADERLESS_STATIONS)
+    if family not in allowed.get(decoder, set()) and not headerless_allowed:
         raise ValueError(f'Decoder {decoder} incompatible con trama {family}; no se insertan mediciones')
-    if family == 'pseudobinary_b':
-        gs300_words(payload.strip(b' \r\n')[4:])
+    if decoder == 'GS300':
+        gs300_payload_words(payload, station=station)
     return family
 
 

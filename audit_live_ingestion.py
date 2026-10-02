@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from gs300_catalog import load_stations,load_sensors,assign_positions,validate_words
-from telemetry_decoders import (validate_decoder_payload,payload_family,gs300_words,
+from telemetry_decoders import (validate_decoder_payload,payload_family,gs300_payload_words,
     ott_blocks,ott_sensors,text_records,record_sensors,named_records,named_sensor_channels)
 
 
@@ -37,10 +37,11 @@ def main():
                 if not station:raise ValueError('No existe configuración GOES activa válida')
                 if raw[:8]!=d:raise ValueError('DCP de encabezado discordante')
                 p=raw[37:].encode('latin1');decoder=station['decoder'];ss=e['sensors']
-                validate_decoder_payload(decoder,p)
+                validate_decoder_payload(decoder,p,station=code)
                 if decoder=='GS300':
                     mapped=assign_positions([dict(s) for s in ss],station['rango_transmision'])
-                    validate_words(gs300_words(p.strip(b' \r\n')[4:]),mapped)
+                    validate_words(gs300_payload_words(p, station=code), mapped,
+                                   station=code)
                 elif decoder=='OTTBinario':
                     blocks=ott_blocks(p,scope[node.name],t);ott_sensors(code,blocks,ss,station['rango_transmision'])
                 elif decoder in ('SMN','SMN_ver2','VAISALA_Protocol_Text'):

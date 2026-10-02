@@ -3084,7 +3084,8 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                         decoder_type = est_data.get("decoder")
                         id_asignado = est_data.get("id_asignado", "")
                         from telemetry_decoders import validate_decoder_payload
-                        validate_decoder_payload(decoder_type, payload)
+                        validate_decoder_payload(
+                            decoder_type, payload, station=id_asignado)
                         if not SENSORES.get(id_asignado):
                             raise ValueError('Sin catálogo válido de sensores para esta estación')
 
@@ -3121,12 +3122,14 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
                                 actualizar_resumenes_dcp(dcp_id, id_asignado, ts_ini, ts_max, ts_max, rango_tx)
                         elif decoder_type == "GS300":
                             # GS300 only; unknown decoder names must never fall through.
-                            payload_clean = payload.strip(b' \r\n')[4:]
-                            from telemetry_decoders import gs300_words
-                            valores = gs300_words(payload_clean)
+                            from telemetry_decoders import gs300_payload_words
+                            valores = gs300_payload_words(
+                                payload, station=id_asignado)
                             if valores:
                                 from gs300_catalog import validate_words
-                                validate_words(valores, SENSORES.get(id_asignado, []))
+                                validate_words(
+                                    valores, SENSORES.get(id_asignado, []),
+                                    station=id_asignado)
                                 insertar_datos_mapeados(dcp_id, id_asignado, meta["timestamp"], valores)
 
                         else:
