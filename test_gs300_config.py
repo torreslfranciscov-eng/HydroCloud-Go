@@ -285,6 +285,20 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 110)
         validate_words([0] * 110, mapped, station='LFLOR07102')
 
+    def test_puente_palomas_verified_layout_uses_64_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0003', 10, 2), ('0004', 10, 3),
+                ('0014', 10, 4), ('0016', 10, 5), ('0019', 60, 6),
+                ('0020', 60, 7),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 64)
+        validate_words([0] * 64, mapped, station='LOMAPUE004')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
