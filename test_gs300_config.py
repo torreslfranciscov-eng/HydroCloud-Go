@@ -196,6 +196,25 @@ class GS300Tests(unittest.TestCase):
             validate_words([0] * 84 + [1499, 2850], mapped,
                            station='GONZTAM001')
 
+    def test_huimanguillo_virtual_intensity_uses_no_wire_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=calculated)
+            for number, period, order, calculated in (
+                ('0001', 10, 1, 0), ('0002', 10, 2, 0),
+                ('0003', 10, 3, 0), ('0006', 10, 8, 0),
+                ('0007', 10, 9, 0), ('0008', 10, 10, 0),
+                ('0009', 10, 11, 0), ('0011', 10, 12, 1),
+                ('0012', 10, 13, 0), ('0013', 10, 14, 0),
+                ('0016', 60, 17, 0),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 110)
+        self.assertEqual(next(sensor for sensor in mapped
+                              if sensor['numero_sensor'] == '0011')['posiciones'], [])
+        validate_words([0] * 110, mapped, station='HUIMA27XXX')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),

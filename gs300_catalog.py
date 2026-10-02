@@ -45,6 +45,11 @@ GS300_UNDEFINED_SUFFIX = {
     '00000CFE06': 44,  # Presa Peñitas layout: wire stops after 0004.
 }
 
+# Active catalog channels derived by the application and absent from the wire.
+GS300_NONWIRE_SENSORS = {
+    'HUIMA27XXX': {'0011'},  # Intensidad derived from precipitation samples.
+}
+
 
 def valid_auxiliary_suffix(station, suffix):
     rule = GS300_AUXILIARY_SUFFIX.get(station)
@@ -124,10 +129,12 @@ def load_sensors(connection):
         for code, number, name, decimals, period, low, high, order, unit, calculated, decoder in cur:
             if number is None or decimals is None or period is None or float(period) < 0 or (float(period) == 0 and decoder != 'OTTBinario'):
                 raise ValueError('Sensor sin periodo/decimales válidos: ' + str(code))
-            sensor = dict(numero_sensor=str(number).strip().zfill(4), nombre=str(name),
+            sensor_number = str(number).strip().zfill(4)
+            sensor = dict(numero_sensor=sensor_number, nombre=str(name),
                 decimales=int(decimals), periodo=float(period), posiciones=[],
                 orden=order, unidad=str(unit).strip() if unit is not None else None,
-                calculada=calculated, decoder=decoder)
+                calculada=(1 if sensor_number in GS300_NONWIRE_SENSORS.get(
+                    str(code).strip(), set()) else calculated), decoder=decoder)
             if low is not None:
                 sensor['valor_minimo'] = float(low)
             if high is not None:
