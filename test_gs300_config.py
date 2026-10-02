@@ -244,6 +244,17 @@ class GS300Tests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'sufijo auxiliar inválido'):
             validate_words([0] * 79 + [1000], mapped, station='JAMAVER008')
 
+    def test_lacantun_verified_layout_uses_148_words(self):
+        periods = [10] * 10 + [60, 10, 10, 60]
+        sensors = [
+            dict(numero_sensor=str(order).zfill(4), periodo=period,
+                 orden=order, decoder='GS300', calculada=0)
+            for order, period in enumerate(periods, start=1)
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 148)
+        validate_words([0] * 148, mapped, station='LACAN07337')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
