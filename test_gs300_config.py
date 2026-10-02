@@ -119,6 +119,25 @@ class GS300Tests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_words([0] * 30, mapped, station='OTRA')
 
+    def test_cotaxtla_internal_temperature_auxiliary_suffix(self):
+        sensors = [
+            dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
+            dict(numero_sensor='0003', periodo=10, orden=2, decoder='GS300'),
+            dict(numero_sensor='0009', periodo=10, orden=3, decoder='GS300'),
+            dict(numero_sensor='0020', periodo=10, orden=4, decoder='GS300'),
+            dict(numero_sensor='0018', periodo=60, orden=5, decoder='GS300'),
+            dict(numero_sensor='0019', periodo=60, orden=6, decoder='GS300'),
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 52)
+        validate_words([0] * 52 + [2600, 2425], mapped,
+                       station='COTAVER010')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 52 + [1499, 2425], mapped,
+                           station='COTAVER010')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 54, mapped, station='OTRA')
+
     def test_emiliano_zapata_missing_channels_are_undefined(self):
         sensors = [
             dict(numero_sensor='0001', periodo=10, orden=1, decoder='GS300'),
