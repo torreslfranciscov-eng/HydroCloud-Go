@@ -114,7 +114,7 @@ def engineering_value(value, sensor):
 
 def number(token):
     token = token.strip()
-    if not token or '#' in token or '/' in token or token.upper() in ('NAN', 'M', 'INF', '-INF'):
+    if not token or '#' in token or '/' in token or token.upper() in ('*', '$', 'NAN', 'M', 'INF', '-INF'):
         return MISSING
     value = float(token)
     return value if math.isfinite(value) else MISSING
@@ -141,7 +141,7 @@ def text_records(payload, received, decoder):
     if received.tzinfo is None:
         received = received.replace(tzinfo=dt.timezone.utc)
     records = []
-    for line in re.split(r'[\r\n\x04]+', payload.decode('ascii').strip(' \r\n"')):
+    for line in re.split(r'[\r\n\x00\x04]+', payload.decode('ascii').strip(' \r\n\x00"')):
         line = line.strip(' "')
         if not line:
             continue
@@ -262,7 +262,7 @@ def ordered_sensors(sensors, order, count):
 def record_sensors(station, values, sensors):
     if (sensors and all(s.get('decoder') == 'SMN' for s in sensors) and
             getattr(values, 'table', None) in ('2', '4')):
-        return smn_catalog_sensors(values, sensors)
+        return smn_catalog_sensors(values, sensors, station=station)
     tables = profile(station).get('tables', {})
     order = tables.get(getattr(values, 'table', 'default'))
     if not order or len(order) != len(values):
@@ -273,7 +273,7 @@ def record_sensors(station, values, sensors):
     return [next(mapped) if code is not None else None for code in order]
 
 
-def smn_catalog_sensors(values, sensors):
+def smn_catalog_sensors(values, sensors, station=None):
     """Verified numbered SMN tables; authoritative order comes from Sensor.
 
     No inference by plausible readings, no slicing excess columns, no fallback
@@ -290,6 +290,13 @@ def smn_catalog_sensors(values, sensors):
     all_period = [s for s in sensors if s['periodo'] == period]
     if len(selected) != len(values) and len(all_period) == len(values):
         selected = all_period
+    # Nicolas Bravo normally sends eleven ordered table-2 columns.  LRGS has
+    # also delivered a verified seven-column prefix when the buffer is cut
+    # short.  Mapping only that proven prefix preserves positions without
+    # guessing absent suffix channels; every other mismatch remains rejected.
+    if (station == 'QR05' and table == '2' and len(values) == 7 and
+            len(selected) == 11):
+        selected = sorted(selected, key=lambda sensor: sensor.get('orden'))[:7]
     if len(selected) != len(values) or not selected:
         raise ValueError(f'SMN tabla {table}: {len(values)} columnas; Sensor configura {len(selected)} canales de {period} min')
     orders = [s.get('orden') for s in selected]

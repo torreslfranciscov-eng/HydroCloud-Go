@@ -12,6 +12,43 @@ def sensor(code, order, period=10, name='Temperatura', unit='°C'):
 
 
 class CatalogTests(unittest.TestCase):
+    def test_smn_asterisk_is_a_missing_value(self):
+        self.assertEqual(d.number('*'), d.MISSING)
+        self.assertEqual(d.number('$'), d.MISSING)
+        records = d.text_records(
+            b'2 17:30:00 *,#,#,#,30.7,89,603.8,0.00,72,11.5,13.1',
+            dt.datetime(2026, 10, 4, 18, 22), 'SMN')
+        self.assertEqual(records[0][1][:4], [d.MISSING] * 4)
+
+    def test_smn_nul_terminates_last_numeric_value(self):
+        records = d.text_records(
+            b'2 17:30:00 #,#,#,#,30.7,89,603.8\x00',
+            dt.datetime(2026, 10, 4, 18, 22), 'SMN')
+        self.assertEqual(records[0][1][-1], 603.8)
+
+    def test_nicolas_bravo_table_two_maps_all_eleven_columns(self):
+        payload = (
+            b'2 17:30:00 #,#,#,#,33.1,73,603.8,0.00,72,11.5,13.1\r\n'
+            b'2 17:40:00 #,#,#,#,32.7,74,603.8,0.00,121,12.8,17.2')
+        records = d.text_records(payload, dt.datetime(2026, 10, 1, 18, 22), 'SMN')
+        sensors = [sensor(f'{number:04d}', number) for number in range(1, 12)]
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0][1][:4], [d.MISSING] * 4)
+        self.assertEqual(records[0][1][4:], [33.1, 73, 603.8, 0, 72, 11.5, 13.1])
+        self.assertEqual(
+            [item['numero_sensor'] for item in d.record_sensors(
+                'QR05', records[0][1], sensors)],
+            [f'{number:04d}' for number in range(1, 12)])
+
+    def test_nicolas_bravo_maps_only_verified_partial_prefix(self):
+        sensors = [sensor(f'{number:04d}', number) for number in range(1, 12)]
+        values = d.Values([d.MISSING] * 4 + [34.1, 58, d.MISSING], '2')
+        mapped = d.record_sensors('QR05', values, sensors)
+        self.assertEqual([item['numero_sensor'] for item in mapped],
+                         [f'{number:04d}' for number in range(1, 8)])
+        with self.assertRaises(ValueError):
+            d.record_sensors('OTRA', values, sensors)
+
     def test_catalog_order_not_sensor_number_or_json(self):
         sensors=[sensor('0001',20),sensor('0002',10)]
         with patch.object(d,'profile',side_effect=AssertionError('JSON no debe consultarse')):
