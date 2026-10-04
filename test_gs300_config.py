@@ -285,6 +285,99 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 110)
         validate_words([0] * 110, mapped, station='LFLOR07102')
 
+    def test_motozintla_verified_layout_uses_110_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2), ('0003', 10, 3),
+                ('0006', 10, 6), ('0007', 10, 7), ('0008', 10, 8),
+                ('0009', 10, 9), ('0012', 10, 11), ('0013', 10, 12),
+                ('0016', 60, 15),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 110)
+        validate_words([0] * 110, mapped, station='MOTOZ07119')
+
+    def test_san_jeronimo_verified_layout_uses_26_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0012', 10, 11), ('0013', 10, 12), ('0016', 60, 15),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 26)
+        validate_words([0] * 26, mapped, station='SJERO07146')
+
+    def test_soledad_doblado_verified_layout_uses_100_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0003', 10, 2), ('0009', 10, 3),
+                ('0005', 10, 4), ('0006', 10, 5), ('0007', 10, 6),
+                ('0022', 10, 7), ('0023', 10, 8), ('0019', 60, 9),
+                ('0021', 60, 10),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 100)
+        validate_words([0] * 100, mapped, station='SOLEVER007')
+
+    def test_santo_domingo_verified_layout_uses_36_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=10, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, order in (('0001', 1), ('0900', 2), ('0901', 3))
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 36)
+        validate_words([0] * 36, mapped, station='STODCHIA22')
+
+    def test_suchiate_verified_layout_uses_50_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2), ('0003', 10, 3),
+                ('0019', 10, 4), ('0028', 60, 5),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 50)
+        validate_words([0] * 50, mapped, station='SUCHIXXXXX')
+
+    def test_talisman_verified_layout_uses_98_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2), ('0003', 10, 3),
+                ('0006', 10, 4), ('0007', 10, 5), ('0011', 10, 6),
+                ('0012', 10, 7), ('0019', 10, 8), ('0025', 60, 9),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 98)
+        validate_words([0] * 98, mapped, station='TALIS07000')
+
+    def test_tierra_blanca_verified_layout_uses_57_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=0)
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2), ('0003', 60, 3),
+                ('0004', 60, 4), ('0005', 60, 5), ('0009', 60, 6),
+                ('0010', 60, 7), ('0011', 60, 8), ('0012', 60, 9),
+            )
+        ]
+        mapped = assign_positions(sensors, 180)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 57)
+        validate_words([0] * 57, mapped, station='TBLASLP020')
+
     def test_puente_palomas_verified_layout_uses_64_words(self):
         sensors = [
             dict(numero_sensor=number, periodo=period, orden=order,
@@ -345,6 +438,90 @@ class GS300Tests(unittest.TestCase):
         self.assertEqual(words[38:], [None] * 44)
         with self.assertRaises(ValueError):
             validate_words([0] * 39, mapped, station='00000CFE06')
+
+    def test_el_tejar_verified_layout_uses_78_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300', calculada=calculated)
+            for number, period, order, calculated in (
+                ('0001', 10, 1, 0), ('0003', 10, 2, 0),
+                ('0009', 10, 3, 1), ('0006', 10, 4, 0),
+                ('0005', 10, 5, 0), ('0007', 10, 6, 0),
+                ('0020', 10, 7, 0), ('0018', 60, 8, 0),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 74)
+        self.assertEqual(next(sensor for sensor in mapped
+                             if sensor['numero_sensor'] == '0009')['posiciones'], [])
+        validate_words([0] * 74 + [1360, 1357, 3675, 3725], mapped,
+                       station='TEJAVER009')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 74 + [999, 1357, 3675, 3725], mapped,
+                           station='TEJAVER009')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 78, mapped, station='OTRA')
+
+    def test_tintillo_1_accepts_only_its_diagnostic_suffix(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300')
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2),
+                ('0005', 60, 7), ('0006', 60, 8),
+                ('0007', 10, 9), ('0008', 10, 10),
+            )
+        ]
+        mapped = assign_positions(sensors, 60)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 26)
+        words = [-131072] * 6 + [0] * 6 + [1327, 3900] + [2] * 6 + [0] * 6
+        validate_words(words + [0, 0, 0, -8150, -131072, 0], mapped,
+                       station='TIN1DISI06')
+        with self.assertRaises(ValueError):
+            validate_words(words + [1, 0, 0, 0, 0, 0], mapped,
+                           station='TIN1DISI06')
+        with self.assertRaises(ValueError):
+            validate_words(words + [0, 0, 0, -8150, -131072, 0], mapped,
+                           station='TIN2DISI07')
+
+    def test_tintillo_2_accepts_its_nonnegative_diagnostic_suffix(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300')
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2),
+                ('0005', 60, 7), ('0006', 60, 8),
+                ('0007', 10, 9), ('0008', 10, 10),
+            )
+        ]
+        mapped = assign_positions(sensors, 60)
+        words = [316] * 6 + [0] * 6 + [1181, 3600] + [0] * 6 + [172] * 6
+        validate_words(words + [0, 0, 0, 344, 321, 0], mapped,
+                       station='TIN2DISI07')
+        with self.assertRaises(ValueError):
+            validate_words(words + [0, 0, 0, -1, 0, 0], mapped,
+                           station='TIN2DISI07')
+        with self.assertRaises(ValueError):
+            validate_words(words + [0, 0, 0, 1001, 0, 0], mapped,
+                           station='TIN2DISI07')
+
+    def test_zapaluta_verified_layout_uses_86_words(self):
+        sensors = [
+            dict(numero_sensor=number, periodo=period, orden=order,
+                 decoder='GS300')
+            for number, period, order in (
+                ('0001', 10, 1), ('0002', 10, 2), ('0003', 10, 3),
+                ('0006', 10, 8), ('0007', 10, 9), ('0008', 10, 10),
+                ('0009', 60, 11), ('0011', 60, 12), ('0012', 60, 13),
+                ('0013', 60, 14), ('0014', 60, 15), ('0015', 60, 16),
+                ('0016', 60, 17),
+            )
+        ]
+        mapped = assign_positions(sensors, 120)
+        self.assertEqual(sum(len(sensor['posiciones']) for sensor in mapped), 86)
+        validate_words([0] * 86, mapped, station='ZAPAL07099')
+        with self.assertRaises(ValueError):
+            validate_words([0] * 126, mapped, station='ZAPAL07099')
 
     def test_missing_is_not_minimum_signed_word(self):
         from telemetry_decoders import gs300_words,scaled_gs300_value

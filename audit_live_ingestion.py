@@ -15,6 +15,10 @@ def main():
     import oracledb
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--all-frames', action='store_true', help='Check every received message in the last 24 hours')
+    parser.add_argument('--json-output', default='live-ingestion-audit.json',
+                        help='Write detailed JSON to this new or replaceable path')
+    parser.add_argument('--report-output', default='INGESTA_AUDITORIA_20260930.md',
+                        help='Write the Markdown summary to this new or replaceable path')
     args = parser.parse_args()
     dsn=os.environ['ORACLE_DSN']
     with oracledb.connect(user=os.environ['ORACLE_CATALOG_USER'],password=os.environ['ORACLE_CATALOG_PASSWORD'],dsn=dsn) as c:
@@ -56,8 +60,8 @@ def main():
         q.execute("SELECT DCP_ID,COUNT(*),MAX(SYS_EXTRACT_UTC(TS)),SUM(CASE WHEN VALIDO=0 THEN 1 ELSE 0 END) FROM DCP_DATOS WHERE TS>SYSTIMESTAMP-INTERVAL '1' DAY AND TS<=SYSTIMESTAMP GROUP BY DCP_ID")
         for d,n,t,bad in q:
             if d in result:result[d]['saved']=dict(rows=n,last=str(t),invalid=bad)
-    with open('live-ingestion-audit.json','w') as f:
-        os.chmod('live-ingestion-audit.json',0o600);json.dump(result,f,ensure_ascii=False,default=str,indent=2)
+    with open(args.json_output,'w') as f:
+        os.chmod(args.json_output,0o600);json.dump(result,f,ensure_ascii=False,default=str,indent=2)
     counts=collections.Counter()
     report_rows=[]
     for d,e in result.items():
@@ -81,7 +85,7 @@ def main():
            '|---|---|---|---:|---:|---:|---:|---|']
     for row in sorted(report_rows):
         lines.append('| '+' | '.join(str(v).replace('|','/').replace('\n',' ') for v in row)+' |')
-    Path('INGESTA_AUDITORIA_20260930.md').write_text('\n'.join(lines)+'\n')
+    Path(args.report_output).write_text('\n'.join(lines)+'\n')
 
 
 if __name__=='__main__':main()

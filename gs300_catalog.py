@@ -40,6 +40,33 @@ GS300_AUXILIARY_SUFFIX = {
         # Final logger-temperature diagnostic after the battery word.
         'allowed_ranges': ((1500, 6000),),
     },
+    'TEJAVER009': {
+        'words': 4,
+        # A second battery pair and logger-temperature pair are transmitted
+        # after the public 0018 battery channel.
+        'allowed_ranges': (
+            (1000, 1600), (1000, 1600),
+            (1500, 6000), (1500, 6000),
+        ),
+    },
+    'TIN1DISI06': {
+        'words': 6,
+        # Diagnostic block omitted from the public sensor list. Positions
+        # 29/30 may carry signed controller diagnostics or the missing sentinel.
+        'allowed_ranges': (
+            (0, 0), (0, 0), (0, 0),
+            (-10000, 1000), (-131072, 1000), (0, 0),
+        ),
+    },
+    'TIN2DISI07': {
+        'words': 6,
+        # Same diagnostic shape as Tintillo 1, with two non-negative
+        # controller counters in the fourth and fifth auxiliary positions.
+        'allowed_ranges': (
+            (0, 0), (0, 0), (0, 0),
+            (0, 1000), (0, 1000), (0, 0),
+        ),
+    },
 }
 
 # Some station programs omit configured trailing channels from the wire.  For
@@ -53,6 +80,7 @@ GS300_UNDEFINED_SUFFIX = {
 # Active catalog channels derived by the application and absent from the wire.
 GS300_NONWIRE_SENSORS = {
     'HUIMA27XXX': {'0011'},  # Intensidad derived from precipitation samples.
+    'TEJAVER009': {'0009'},  # Intensidad derived from precipitation samples.
 }
 
 
