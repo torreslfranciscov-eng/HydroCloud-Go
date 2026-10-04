@@ -14,6 +14,7 @@ def main():
     import oracledb
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--measurements-only',action='store_true')
+    parser.add_argument('--output',default='ott-audit-20260930.json')
     args=parser.parse_args()
     dsn = os.environ['ORACLE_DSN']
     with oracledb.connect(user=os.environ['ORACLE_CATALOG_USER'], password=os.environ['ORACLE_CATALOG_PASSWORD'], dsn=dsn) as c:
@@ -52,7 +53,7 @@ def main():
                     pos+=4+width*count;layout.append((interval,count))
                 frame['observed_layout']=layout;frame['tail']=data[pos:].hex()
             entry['frames'].append(frame)
-    path=Path('ott-audit-20260930.json')
+    path=Path(args.output)
     with path.open('w') as f:
         os.chmod(path,0o600);json.dump(result,f,ensure_ascii=False,indent=2,default=str)
     counts=collections.Counter()

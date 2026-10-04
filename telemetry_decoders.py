@@ -260,7 +260,8 @@ def ordered_sensors(sensors, order, count):
 
 
 def record_sensors(station, values, sensors):
-    if sensors and all(s.get('decoder') == 'SMN' for s in sensors):
+    if (sensors and all(s.get('decoder') == 'SMN' for s in sensors) and
+            getattr(values, 'table', None) in ('2', '4')):
         return smn_catalog_sensors(values, sensors)
     tables = profile(station).get('tables', {})
     order = tables.get(getattr(values, 'table', 'default'))
@@ -283,6 +284,12 @@ def smn_catalog_sensors(values, sensors):
         raise ValueError(f'SMN: tabla {table} sin correspondencia comprobada en Sensor')
     period = 10 if table == '2' else 60
     selected = [s for s in sensors if s['periodo'] == period and s.get('calculada') == 0]
+    # Some SMN programs transmit a channel whose type is globally marked as
+    # calculated (for example ZAP3DISI04 Gasto). Accept it only when including
+    # every active channel of the table's period gives an exact column count.
+    all_period = [s for s in sensors if s['periodo'] == period]
+    if len(selected) != len(values) and len(all_period) == len(values):
+        selected = all_period
     if len(selected) != len(values) or not selected:
         raise ValueError(f'SMN tabla {table}: {len(values)} columnas; Sensor configura {len(selected)} canales de {period} min')
     orders = [s.get('orden') for s in selected]
@@ -295,8 +302,15 @@ def smn_catalog_sensors(values, sensors):
     selected.sort(key=lambda s:s['orden'])
     if table == '4':
         names = [s['nombre'].lower() for s in selected]
-        if len(selected) != 2 or 'bater' not in names[0] or 'panel' not in names[1] or any(s['unidad'].upper() != 'V' for s in selected):
-            raise ValueError('SMN tabla 4: catálogo no identifica batería y panel en V, en ese orden')
+        battery = (len(selected) == 2 and 'bater' in names[0] and
+                   str(selected[0]['unidad']).upper() == 'V')
+        second = (len(selected) == 2 and
+                  (('panel' in names[1] and
+                    str(selected[1]['unidad']).upper() == 'V') or
+                   ('temperatura interna' in names[1] and
+                    str(selected[1]['unidad']).upper() in ('°C', 'C'))))
+        if not battery or not second:
+            raise ValueError('SMN tabla 4: catálogo no identifica batería y panel/temperatura interna en el orden transmitido')
     return selected
 
 

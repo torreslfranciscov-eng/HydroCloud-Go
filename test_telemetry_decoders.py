@@ -166,5 +166,38 @@ class DecoderTests(unittest.TestCase):
         self.assertEqual(mapped[10]['numero_sensor'],'0010')
         self.assertEqual(values[10],12.38)
 
+    def test_yc05_default_profile_keeps_second_pressure_unmapped(self):
+        sensors = [dict(numero_sensor=f'{n:04d}', decoder='SMN')
+                   for n in range(1, 12)]
+        values = d.Values([1, 2, 3, 4, 25, 87, 1010.4, 1011.3,
+                           0, -1, 12.47, 2.6], 'default')
+        with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH': ''}):
+            mapped = d.record_sensors('YC05', values, sensors)
+        self.assertIsNone(mapped[7])
+        self.assertEqual(mapped[8]['numero_sensor'], '0008')
+        self.assertEqual(mapped[10]['numero_sensor'], '0010')
+        self.assertEqual(mapped[11]['numero_sensor'], '0011')
+
+    def test_smn_transmitted_calculated_channel_is_used_on_exact_count(self):
+        sensors = [
+            dict(numero_sensor=f'{n:04d}', periodo=10, orden=n,
+                 calculada=1 if n == 4 else 0, unidad='m', nombre='Canal',
+                 decoder='SMN')
+            for n in range(1, 6)
+        ]
+        mapped = d.record_sensors('ZAP3DISI04', d.Values([1, 2, 3, 4, 5], '2'), sensors)
+        self.assertEqual([s['numero_sensor'] for s in mapped],
+                         ['0001', '0002', '0003', '0004', '0005'])
+
+    def test_smn_table4_accepts_battery_and_internal_temperature(self):
+        sensors = [
+            dict(numero_sensor='0006', periodo=60, orden=6, calculada=0,
+                 unidad='V', nombre='Voltaje de batería', decoder='SMN'),
+            dict(numero_sensor='0007', periodo=60, orden=7, calculada=0,
+                 unidad='°C', nombre='Temperatura Interna', decoder='SMN'),
+        ]
+        mapped = d.record_sensors('ZAP3DISI04', d.Values([12.7, 31.4], '4'), sensors)
+        self.assertEqual([s['numero_sensor'] for s in mapped], ['0006', '0007'])
+
 
 if __name__=='__main__':unittest.main()
