@@ -701,6 +701,24 @@ def _ensure_pg_tables():
                     tipo VARCHAR2(50),
                     CONSTRAINT ultimas_mediciones_pkey PRIMARY KEY (dcp_id, variable)
                 )
+                """,
+                """
+                CREATE TABLE estatus_estaciones (
+                    dcp_id VARCHAR2(20) NOT NULL PRIMARY KEY,
+                    fecha_calculo TIMESTAMP WITH TIME ZONE,
+                    intervalo_minutos NUMBER DEFAULT 60,
+                    mensajes_esperados_48h NUMBER DEFAULT 0,
+                    mensajes_recibidos_48h NUMBER DEFAULT 0,
+                    color_estatus VARCHAR2(20) DEFAULT 'NEGRO',
+                    fecha_ultima_tx TIMESTAMP WITH TIME ZONE,
+                    servidor VARCHAR2(200),
+                    mensajes_recibidos_24h NUMBER DEFAULT 0,
+                    transmisiones_esperadas_24h NUMBER DEFAULT 0,
+                    transmisiones_perdidas_24h NUMBER DEFAULT 0,
+                    color_dashboard VARCHAR2(20) DEFAULT 'NEGRO',
+                    transmitiendo NUMBER(1) DEFAULT 0,
+                    rango_transmision NUMBER DEFAULT 60
+                )
                 """
             ]
             for ddl in oracle_tables:
@@ -708,6 +726,54 @@ def _ensure_pg_tables():
                     cur.execute(ddl)
                 except Exception:
                     conn.rollback()
+            conn.commit()
+            # La vista calcula la antigüedad contra el reloj actual; los
+            # contadores y la última transmisión se mantienen con el refresco
+            # Oracle definido más abajo.
+            cur.execute("""
+                CREATE OR REPLACE VIEW v_estado_transmision AS
+                SELECT
+                    dcp_id,
+                    fecha_ultima_tx,
+                    NVL(rango_transmision, 60) AS rango_transmision,
+                    servidor,
+                    fecha_calculo,
+                    NVL(mensajes_recibidos_48h, 0) AS mensajes_recibidos_48h,
+                    NVL(mensajes_esperados_48h, 0) AS mensajes_esperados_48h,
+                    ROUND(
+                        NVL(mensajes_recibidos_48h, 0) /
+                        NULLIF(mensajes_esperados_48h, 0) * 100,
+                        1
+                    ) AS efectividad_48h_pct,
+                    color_estatus,
+                    CASE WHEN fecha_ultima_tx IS NULL THEN NULL ELSE ROUND(
+                        (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                         CAST(SYS_EXTRACT_UTC(fecha_ultima_tx) AS DATE)) * 1440
+                    ) END AS minutos_sin_tx,
+                    CASE WHEN fecha_ultima_tx IS NULL THEN NULL ELSE ROUND(
+                        (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                         CAST(SYS_EXTRACT_UTC(fecha_ultima_tx) AS DATE)) * 24,
+                        1
+                    ) END AS horas_sin_tx,
+                    CASE
+                        WHEN fecha_ultima_tx IS NULL THEN 0
+                        WHEN (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                              CAST(SYS_EXTRACT_UTC(fecha_ultima_tx) AS DATE)) * 1440
+                             <= NVL(rango_transmision, 60) * 2.5 THEN 1
+                        ELSE 0
+                    END AS transmitiendo,
+                    CASE
+                        WHEN fecha_ultima_tx IS NULL THEN 'SIN_DATOS'
+                        WHEN (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                              CAST(SYS_EXTRACT_UTC(fecha_ultima_tx) AS DATE)) * 1440
+                             <= NVL(rango_transmision, 60) * 1.5 THEN 'OK'
+                        WHEN (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                              CAST(SYS_EXTRACT_UTC(fecha_ultima_tx) AS DATE)) * 1440
+                             <= NVL(rango_transmision, 60) * 3 THEN 'RETRASADA'
+                        ELSE 'OFFLINE'
+                    END AS estado_tx
+                FROM estatus_estaciones
+            """)
             conn.commit()
             _tables_ensured = True
             print("[ORACLE] ✅ Tablas base verificadas en Oracle Cloud")
@@ -2751,6 +2817,148 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
     finally:
         release_pg_conn(conn)
 
+# ==================== ESTADO ACTUAL DE ESTACIONES ====================
+_estatus_oracle_refresh_lock = threading.Lock()
+
+
+def _oracle_estatus_merge_sql(single_station=False):
+    """MERGE idempotente que resume las recepciones exitosas de 24/48 h.
+
+    La fecha de última transmisión nunca retrocede: esto permite procesar
+    recuperaciones históricas sin degradar el estado actual de la estación.
+    """
+    station_filter = "WHERE e2.dcp_id = :status_dcp_id" if single_station else ""
+    return f"""
+        MERGE INTO estatus_estaciones e
+        USING (
+            SELECT
+                e2.dcp_id,
+                COUNT(b.id) AS recibidos_48h,
+                SUM(CASE
+                    WHEN SYS_EXTRACT_UTC(b.timestamp_utc) >=
+                         SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '1' DAY
+                    THEN 1 ELSE 0
+                END) AS recibidos_24h,
+                MAX(NVL(b.timestamp_msg, b.timestamp_utc)) AS ultima_tx_48h,
+                MAX(b.servidor) KEEP (
+                    DENSE_RANK LAST ORDER BY NVL(b.timestamp_msg, b.timestamp_utc)
+                ) AS ultimo_servidor
+            FROM estatus_estaciones e2
+            LEFT JOIN bitacora_goes b
+              ON b.dcp_id = e2.dcp_id
+             AND b.exito = 1
+             AND SYS_EXTRACT_UTC(b.timestamp_utc) >=
+                 SYS_EXTRACT_UTC(SYSTIMESTAMP) - INTERVAL '2' DAY
+             AND SYS_EXTRACT_UTC(NVL(b.timestamp_msg, b.timestamp_utc)) <=
+                 SYS_EXTRACT_UTC(SYSTIMESTAMP)
+            {station_filter}
+            GROUP BY e2.dcp_id
+        ) s
+        ON (e.dcp_id = s.dcp_id)
+        WHEN MATCHED THEN UPDATE SET
+            e.fecha_calculo = SYSTIMESTAMP,
+            e.mensajes_recibidos_48h = s.recibidos_48h,
+            e.mensajes_esperados_48h =
+                ROUND(2880 / GREATEST(NVL(e.intervalo_minutos, 60), 1)),
+            e.mensajes_recibidos_24h = s.recibidos_24h,
+            e.transmisiones_esperadas_24h =
+                ROUND(1440 / GREATEST(NVL(e.intervalo_minutos, 60), 1)),
+            e.transmisiones_perdidas_24h = GREATEST(
+                ROUND(1440 / GREATEST(NVL(e.intervalo_minutos, 60), 1)) -
+                s.recibidos_24h,
+                0
+            ),
+            e.fecha_ultima_tx = CASE
+                WHEN s.ultima_tx_48h IS NULL THEN e.fecha_ultima_tx
+                WHEN e.fecha_ultima_tx IS NULL THEN s.ultima_tx_48h
+                WHEN SYS_EXTRACT_UTC(s.ultima_tx_48h) >
+                     SYS_EXTRACT_UTC(e.fecha_ultima_tx) THEN s.ultima_tx_48h
+                ELSE e.fecha_ultima_tx
+            END,
+            e.servidor = CASE
+                WHEN s.ultima_tx_48h IS NOT NULL THEN s.ultimo_servidor
+                ELSE e.servidor
+            END,
+            e.color_estatus = CASE
+                WHEN s.recibidos_48h = 0 THEN 'NEGRO'
+                WHEN s.recibidos_48h >=
+                     ROUND(2880 / GREATEST(NVL(e.intervalo_minutos, 60), 1)) * 0.9
+                    THEN 'VERDE'
+                WHEN s.recibidos_48h >=
+                     ROUND(2880 / GREATEST(NVL(e.intervalo_minutos, 60), 1)) * 0.5
+                    THEN 'AMARILLO'
+                ELSE 'ROJO'
+            END,
+            e.color_dashboard = CASE
+                WHEN s.recibidos_24h = 0 THEN 'NEGRO'
+                WHEN s.recibidos_24h >=
+                     ROUND(1440 / GREATEST(NVL(e.intervalo_minutos, 60), 1)) * 0.9
+                    THEN 'VERDE'
+                WHEN s.recibidos_24h >=
+                     ROUND(1440 / GREATEST(NVL(e.intervalo_minutos, 60), 1)) * 0.5
+                    THEN 'AMARILLO'
+                ELSE 'ROJO'
+            END,
+            e.transmitiendo = CASE
+                WHEN COALESCE(s.ultima_tx_48h, e.fecha_ultima_tx) IS NULL THEN 0
+                WHEN (CAST(SYS_EXTRACT_UTC(SYSTIMESTAMP) AS DATE) -
+                      CAST(SYS_EXTRACT_UTC(
+                          COALESCE(s.ultima_tx_48h, e.fecha_ultima_tx)
+                      ) AS DATE)) * 1440
+                     <= NVL(e.rango_transmision, 60) * 2.5 THEN 1
+                ELSE 0
+            END
+    """
+
+
+def _actualizar_estatus_estacion_oracle(cur, dcp_id):
+    """Actualiza una estación dentro de la transacción de su bitácora."""
+    if DB_BACKEND != 'oracle':
+        return
+    cur.execute(_oracle_estatus_merge_sql(single_station=True),
+                {"status_dcp_id": dcp_id})
+
+
+def actualizar_estatus_estaciones_oracle():
+    """Refresca todas las estaciones y envejece correctamente las inactivas."""
+    if DB_BACKEND != 'oracle':
+        return False
+    if not _estatus_oracle_refresh_lock.acquire(blocking=False):
+        return False
+    conn = None
+    try:
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        cur.execute(_oracle_estatus_merge_sql())
+        conn.commit()
+        cur.close()
+        print("[ESTATUS] ✅ ESTATUS_ESTACIONES actualizado en Oracle")
+        return True
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print(f"[WARN ESTATUS] No se pudo actualizar ESTATUS_ESTACIONES: {e}")
+        return False
+    finally:
+        if conn:
+            release_pg_conn(conn)
+        _estatus_oracle_refresh_lock.release()
+
+
+def _lanzar_refresco_estatus_oracle():
+    """Ejecuta el refresco global sin bloquear las descargas programadas."""
+    if DB_BACKEND != 'oracle' or _estatus_oracle_refresh_lock.locked():
+        return
+    threading.Thread(
+        target=actualizar_estatus_estaciones_oracle,
+        name="oracle-status-refresh",
+        daemon=True,
+    ).start()
+
+
 # ==================== LOG BITÁCORA ====================
 def log_to_pg(dcp_id: str, success: bool, timestamp, host):
     """Registrar en TimescaleDB"""
@@ -2766,6 +2974,17 @@ def log_to_pg(dcp_id: str, success: bool, timestamp, host):
             (dcp_id, timestamp_utc, timestamp_msg, servidor, exito)
             VALUES (%s, %s, %s, %s, %s)
         """, (dcp_id, ts_utc, timestamp, host, success))
+
+        if DB_BACKEND == 'oracle':
+            # Mantener estado y bitácora en la misma transacción. Si el
+            # resumen falla, se conserva la bitácora y el refresco periódico
+            # reparará el estado en el siguiente ciclo.
+            cur.execute("SAVEPOINT sp_estado_actual")
+            try:
+                _actualizar_estatus_estacion_oracle(cur, dcp_id)
+            except Exception as status_error:
+                cur.execute("ROLLBACK TO sp_estado_actual")
+                print(f"[WARN ESTATUS] Refresco incremental falló para {dcp_id}: {status_error}")
         
         conn.commit()
         cur.close()
@@ -4159,7 +4378,9 @@ def api_estado_transmision():
         return jsonify({"error": "Sin conexión PG"}), 500
     try:
         cur = conn.cursor()
-        cur.execute("""
+        estado_view = "v_estado_transmision" if DB_BACKEND == 'oracle' \
+            else "public.v_estado_transmision"
+        cur.execute(f"""
             SELECT 
                 v.dcp_id,
                 v.fecha_ultima_tx,
@@ -4174,7 +4395,7 @@ def api_estado_transmision():
                 v.horas_sin_tx,
                 v.transmitiendo,
                 v.estado_tx
-            FROM public.v_estado_transmision v
+            FROM {estado_view} v
             ORDER BY v.minutos_sin_tx ASC NULLS LAST;
         """)
         rows = cur.fetchall()
@@ -4805,6 +5026,13 @@ def main():
     global _scheduled_dcp_ids
     reload_minutes = config.getint('settings', 'reload_interval_minutes', fallback=5)
 
+    if DB_BACKEND == 'oracle':
+        actualizar_estatus_estaciones_oracle()
+        schedule.clear('oracle_estatus_refresh')
+        schedule.every(10).minutes.do(_lanzar_refresco_estatus_oracle).tag(
+            'oracle_estatus_refresh'
+        )
+
     print("[INFO] Programando descargas (+1 minuto)...")
     for dcp_id, data in ESTACIONES.items():
         _programar_estacion(dcp_id, data)
@@ -4925,6 +5153,13 @@ if platform.system() == 'Windows':
             def _run_main(self):
                 global _scheduled_dcp_ids
                 reload_minutes = config.getint('settings', 'reload_interval_minutes', fallback=5)
+
+                if DB_BACKEND == 'oracle':
+                    actualizar_estatus_estaciones_oracle()
+                    schedule.clear('oracle_estatus_refresh')
+                    schedule.every(10).minutes.do(
+                        _lanzar_refresco_estatus_oracle
+                    ).tag('oracle_estatus_refresh')
 
                 for dcp_id, data in ESTACIONES.items():
                     _programar_estacion(dcp_id, data)
