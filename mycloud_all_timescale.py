@@ -1,3 +1,13 @@
+import os
+import time
+
+# Oracle's thin driver uses the process timezone when binding Python datetimes.
+# Keep the collector in UTC so an aware GOES timestamp is not rebound with the
+# workstation's local offset (for example, UTC-06:00 in Mexico).
+os.environ["TZ"] = "UTC"
+if hasattr(time, "tzset"):
+    time.tzset()
+
 import imports_manager
 """
 VERSIÓN OPTIMIZADA PARA TIMESCALEDB
@@ -10,9 +20,7 @@ VERSIÓN OPTIMIZADA PARA TIMESCALEDB
 import socket
 import struct
 import hashlib
-import time
 import schedule
-import os
 import threading
 import queue
 import psycopg2
