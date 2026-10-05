@@ -366,6 +366,17 @@ class OracleCursorProxy:
                     continue
                 raise
 
+    def executemany(self, query, seq_of_params, *args, **kwargs):
+        """Ejecuta lotes Oracle con binds nombrados.
+
+        Los lotes nuevos usan SQL Oracle nativo; se rechazan marcadores `%s`
+        para no aplicar una conversión ambigua a cada fila.
+        """
+        q = _oracle_rewrite_postgres_query(query.strip())
+        if '%s' in q:
+            raise ValueError("executemany Oracle requiere binds nombrados")
+        return self._cursor.executemany(q, seq_of_params, *args, **kwargs)
+
     def fetchall(self):
         return self._cursor.fetchall()
 
@@ -718,6 +729,32 @@ def _ensure_pg_tables():
                     color_dashboard VARCHAR2(20) DEFAULT 'NEGRO',
                     transmitiendo NUMBER(1) DEFAULT 0,
                     rango_transmision NUMBER DEFAULT 60
+                )
+                """,
+                """
+                CREATE TABLE diagnostico_diario_goes (
+                    fecha DATE NOT NULL,
+                    dcp_id VARCHAR2(20) NOT NULL,
+                    id_asignado VARCHAR2(50),
+                    nombre VARCHAR2(200),
+                    tx_programadas NUMBER,
+                    tx_recibidas NUMBER,
+                    porcentaje_eficiencia NUMBER,
+                    potencia_prom NUMBER,
+                    potencia_min NUMBER,
+                    potencia_max NUMBER,
+                    voltaje_prom NUMBER,
+                    voltaje_min NUMBER,
+                    voltaje_max NUMBER,
+                    longitud_prom NUMBER,
+                    canales_usados NUMBER,
+                    primera_tx TIMESTAMP WITH TIME ZONE,
+                    ultima_tx TIMESTAMP WITH TIME ZONE,
+                    calidad_senal VARCHAR2(20),
+                    estado_operativo VARCHAR2(20),
+                    ultima_actualizacion TIMESTAMP WITH TIME ZONE,
+                    CONSTRAINT diagnostico_diario_goes_pkey
+                        PRIMARY KEY (fecha, dcp_id)
                 )
                 """
             ]
@@ -2959,6 +2996,211 @@ def _lanzar_refresco_estatus_oracle():
     ).start()
 
 
+# ==================== DIAGNÓSTICO DIARIO GOES ====================
+_diagnostico_oracle_refresh_lock = threading.Lock()
+
+
+def _fechas_diagnostico_utc(dias=2):
+    hoy = datetime.datetime.now(datetime.timezone.utc).date()
+    return [hoy - datetime.timedelta(days=i) for i in range(max(1, dias))]
+
+
+def _filas_base_diagnostico(fecha):
+    filas = []
+    for dcp_id, estacion in ESTACIONES.items():
+        rango = float(estacion.get("rango_transmision") or 60)
+        programadas = max(1, round(1440 / max(rango, 1)))
+        filas.append({
+            "diag_fecha": datetime.datetime.combine(fecha, datetime.time.min),
+            "diag_dcp": dcp_id,
+            "diag_id": estacion.get("id_asignado") or dcp_id,
+            "diag_nombre": estacion.get("nombre") or dcp_id,
+            "diag_programadas": programadas,
+        })
+    return filas
+
+
+_DIAGNOSTICO_BASE_MERGE = """
+    MERGE INTO diagnostico_diario_goes d
+    USING (
+        SELECT TRUNC(:diag_fecha) AS fecha,
+               :diag_dcp AS dcp_id,
+               :diag_id AS id_asignado,
+               :diag_nombre AS nombre,
+               :diag_programadas AS tx_programadas
+        FROM dual
+    ) s
+    ON (d.fecha = s.fecha AND d.dcp_id = s.dcp_id)
+    WHEN MATCHED THEN UPDATE SET
+        d.id_asignado = s.id_asignado,
+        d.nombre = s.nombre,
+        d.tx_programadas = s.tx_programadas
+    WHEN NOT MATCHED THEN INSERT (
+        fecha, dcp_id, id_asignado, nombre, tx_programadas,
+        tx_recibidas, porcentaje_eficiencia, calidad_senal,
+        estado_operativo, ultima_actualizacion
+    ) VALUES (
+        s.fecha, s.dcp_id, s.id_asignado, s.nombre, s.tx_programadas,
+        0, 0, 'SIN_DATOS', 'CRITICO', SYSTIMESTAMP
+    )
+"""
+
+
+_DIAGNOSTICO_LIMPIAR_SQL = """
+    DELETE FROM diagnostico_diario_goes
+    WHERE fecha = TRUNC(:diag_fecha)
+      AND tx_programadas IS NULL
+      AND tx_recibidas IS NULL
+      AND porcentaje_eficiencia IS NULL
+      AND potencia_prom IS NULL
+      AND ultima_tx IS NULL
+"""
+
+
+_DIAGNOSTICO_HEADERS_MERGE = """
+    MERGE INTO diagnostico_diario_goes d
+    USING (
+        SELECT
+            e.dcp_id,
+            COUNT(h.dcp_id) AS tx_recibidas,
+            ROUND(AVG(h.signal_strength), 2) AS potencia_prom,
+            MIN(h.signal_strength) AS potencia_min,
+            MAX(h.signal_strength) AS potencia_max,
+            ROUND(AVG(CASE WHEN h.raw_message IS NOT NULL
+                           THEN DBMS_LOB.GETLENGTH(h.raw_message) END), 2)
+                AS longitud_prom,
+            COUNT(DISTINCT h.channel) AS canales_usados,
+            MIN(h.timestamp_msg) AS primera_tx,
+            MAX(h.timestamp_msg) AS ultima_tx
+        FROM estatus_estaciones e
+        LEFT JOIN dcp_headers h
+          ON h.dcp_id = e.dcp_id
+         AND SYS_EXTRACT_UTC(h.timestamp_msg) >= :diag_inicio
+         AND SYS_EXTRACT_UTC(h.timestamp_msg) < :diag_fin
+        GROUP BY e.dcp_id
+    ) s
+    ON (d.fecha = TRUNC(:diag_fecha) AND d.dcp_id = s.dcp_id)
+    WHEN MATCHED THEN UPDATE SET
+        d.tx_recibidas = s.tx_recibidas,
+        d.potencia_prom = s.potencia_prom,
+        d.potencia_min = s.potencia_min,
+        d.potencia_max = s.potencia_max,
+        d.longitud_prom = s.longitud_prom,
+        d.canales_usados = s.canales_usados,
+        d.primera_tx = s.primera_tx,
+        d.ultima_tx = s.ultima_tx
+"""
+
+
+_DIAGNOSTICO_VOLTAJE_MERGE = """
+    MERGE INTO diagnostico_diario_goes d
+    USING (
+        SELECT
+            x.dcp_id,
+            ROUND(AVG(x.valor), 2) AS voltaje_prom,
+            MIN(x.valor) AS voltaje_min,
+            MAX(x.valor) AS voltaje_max
+        FROM dcp_datos x
+        WHERE SYS_EXTRACT_UTC(x.ts) >= :diag_inicio
+          AND SYS_EXTRACT_UTC(x.ts) < :diag_fin
+          AND NVL(x.valido, 1) = 1
+          AND UPPER(NVL(x.variable, ' ')) LIKE '%VOLTAJE%BATER%'
+        GROUP BY x.dcp_id
+    ) s
+    ON (d.fecha = TRUNC(:diag_fecha) AND d.dcp_id = s.dcp_id)
+    WHEN MATCHED THEN UPDATE SET
+        d.voltaje_prom = s.voltaje_prom,
+        d.voltaje_min = s.voltaje_min,
+        d.voltaje_max = s.voltaje_max
+"""
+
+
+_DIAGNOSTICO_CLASIFICAR_SQL = """
+    UPDATE diagnostico_diario_goes d
+    SET d.porcentaje_eficiencia = ROUND(
+            LEAST(NVL(d.tx_recibidas, 0) /
+                  GREATEST(NVL(d.tx_programadas, 1), 1) * 100, 100), 2),
+        d.calidad_senal = CASE
+            WHEN d.tx_recibidas = 0 OR d.potencia_prom IS NULL THEN 'SIN_DATOS'
+            WHEN d.potencia_prom >= 38 THEN 'EXCELENTE'
+            WHEN d.potencia_prom >= 35 THEN 'BUENA'
+            WHEN d.potencia_prom >= 30 THEN 'REGULAR'
+            ELSE 'BAJA'
+        END,
+        d.estado_operativo = CASE
+            WHEN NVL(d.tx_recibidas, 0) /
+                 GREATEST(NVL(d.tx_programadas, 1), 1) >= 0.80 THEN 'OPTIMO'
+            WHEN NVL(d.tx_recibidas, 0) /
+                 GREATEST(NVL(d.tx_programadas, 1), 1) >= 0.60 THEN 'BUENO'
+            WHEN NVL(d.tx_recibidas, 0) /
+                 GREATEST(NVL(d.tx_programadas, 1), 1) >= 0.50 THEN 'INTERMITENTE'
+            ELSE 'CRITICO'
+        END,
+        d.ultima_actualizacion = SYSTIMESTAMP
+    WHERE d.fecha = TRUNC(:diag_fecha)
+"""
+
+
+def actualizar_diagnostico_diario_goes(fechas=None):
+    """Reconstruye diagnósticos diarios desde headers y mediciones Oracle."""
+    if DB_BACKEND != 'oracle':
+        return False
+    if not _diagnostico_oracle_refresh_lock.acquire(blocking=False):
+        return False
+    conn = None
+    try:
+        fechas = list(fechas or _fechas_diagnostico_utc())
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        for fecha in sorted(set(fechas)):
+            inicio = datetime.datetime.combine(fecha, datetime.time.min)
+            # Elimina exclusivamente los stubs históricos sin una sola
+            # métrica (el lote fallido del 29/09); los diagnósticos reales se
+            # recalculan mediante MERGE y nunca se borran.
+            cur.execute(_DIAGNOSTICO_LIMPIAR_SQL, {"diag_fecha": inicio})
+            filas = _filas_base_diagnostico(fecha)
+            if filas:
+                cur.executemany(_DIAGNOSTICO_BASE_MERGE, filas)
+            fin = inicio + datetime.timedelta(days=1)
+            binds = {
+                "diag_fecha": inicio,
+                "diag_inicio": inicio,
+                "diag_fin": fin,
+            }
+            cur.execute(_DIAGNOSTICO_HEADERS_MERGE, binds)
+            cur.execute(_DIAGNOSTICO_VOLTAJE_MERGE, binds)
+            cur.execute(_DIAGNOSTICO_CLASIFICAR_SQL,
+                        {"diag_fecha": inicio})
+        conn.commit()
+        cur.close()
+        print(f"[DIAGNOSTICO] ✅ {len(fechas)} día(s) actualizados en Oracle")
+        return True
+    except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        print(f"[WARN DIAGNOSTICO] No se pudo actualizar el diagnóstico diario: {e}")
+        return False
+    finally:
+        if conn:
+            release_pg_conn(conn)
+        _diagnostico_oracle_refresh_lock.release()
+
+
+def _lanzar_refresco_diagnostico_oracle(dias=2):
+    """Actualiza hoy/ayer (o un backfill corto) sin bloquear el scheduler."""
+    if DB_BACKEND != 'oracle' or _diagnostico_oracle_refresh_lock.locked():
+        return
+    threading.Thread(
+        target=actualizar_diagnostico_diario_goes,
+        args=(_fechas_diagnostico_utc(dias),),
+        name="oracle-daily-diagnostics",
+        daemon=True,
+    ).start()
+
+
 # ==================== LOG BITÁCORA ====================
 def log_to_pg(dcp_id: str, success: bool, timestamp, host):
     """Registrar en TimescaleDB"""
@@ -5032,6 +5274,13 @@ def main():
         schedule.every(10).minutes.do(_lanzar_refresco_estatus_oracle).tag(
             'oracle_estatus_refresh'
         )
+        schedule.clear('oracle_diagnostico_refresh')
+        schedule.every(10).minutes.do(
+            _lanzar_refresco_diagnostico_oracle
+        ).tag('oracle_diagnostico_refresh')
+        # Recupera la semana reciente al desplegar; después hoy y ayer se
+        # mantienen exactos en cada ciclo de diez minutos.
+        _lanzar_refresco_diagnostico_oracle(dias=7)
 
     print("[INFO] Programando descargas (+1 minuto)...")
     for dcp_id, data in ESTACIONES.items():
@@ -5160,6 +5409,11 @@ if platform.system() == 'Windows':
                     schedule.every(10).minutes.do(
                         _lanzar_refresco_estatus_oracle
                     ).tag('oracle_estatus_refresh')
+                    schedule.clear('oracle_diagnostico_refresh')
+                    schedule.every(10).minutes.do(
+                        _lanzar_refresco_diagnostico_oracle
+                    ).tag('oracle_diagnostico_refresh')
+                    _lanzar_refresco_diagnostico_oracle(dias=7)
 
                 for dcp_id, data in ESTACIONES.items():
                     _programar_estacion(dcp_id, data)
