@@ -18,20 +18,67 @@
   const signalLabels={recent:'Datos decodificados en las últimas 24 horas',corrupt:'Recibe transmisiones, pero el contenido reciente no se puede decodificar',week:'Datos de 1 a 7 días; sin mediciones en 24 h',historical:'Con histórico; sin mediciones en los últimos 7 días',empty:'Sin mediciones asociadas a la clave y DCP configurados',unknown:'Sin verificar: vínculo no disponible o consulta fallida'};
   const signalShort={recent:'Datos ≤24 h',corrupt:'Transmite · contenido inválido',week:'1–7 días',historical:'Solo histórico',empty:'Sin mediciones asociadas',unknown:'Sin verificar'};
   const show=(message,error=false)=>{status.textContent=message;status.className=error?'error':'';};
+
+  function getStationCoords(s) {
+    let lat = s.latitude ?? s.Latitude ?? s.LATITUD ?? s.lat;
+    let lon = s.longitude ?? s.Longitude ?? s.LONGITUD ?? s.lng ?? s.lon;
+    if (lat === null || lat === undefined || lon === null || lon === undefined) return null;
+
+    lat = parseFloat(lat);
+    lon = parseFloat(lon);
+
+    if (isNaN(lat) || isNaN(lon) || (lat === 0 && lon === 0)) return null;
+
+    // Si la latitud y longitud están invertidas (ej. lat=99.15 y lon=19.43)
+    if (Math.abs(lat) > 90 && Math.abs(lon) <= 90) {
+      const temp = lat;
+      lat = lon;
+      lon = temp;
+    }
+
+    // Convertir formato Grados-Minutos-Segundos (DMS, ej. 192530 o 991530) si aplica
+    if (Math.abs(lat) > 90) {
+      const deg = Math.floor(Math.abs(lat) / 10000);
+      const min = Math.floor((Math.abs(lat) % 10000) / 100);
+      const sec = Math.abs(lat) % 100;
+      lat = (deg + min / 60 + sec / 3600) * (lat < 0 ? -1 : 1);
+    }
+    if (Math.abs(lon) > 180) {
+      const deg = Math.floor(Math.abs(lon) / 10000);
+      const min = Math.floor((Math.abs(lon) % 10000) / 100);
+      const sec = Math.abs(lon) % 100;
+      lon = (deg + min / 60 + sec / 3600) * (lon < 0 ? -1 : 1);
+    }
+
+    // En México, la longitud oeste siempre es negativa (-86° a -118° W).
+    // Si en la BD viene como valor positivo (ej. 99.15), se ajusta a -99.15 para ubicarla en México.
+    if (lon > 80 && lon < 130) {
+      lon = -lon;
+    }
+
+    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {
+      return [lat, lon];
+    }
+    return null;
+  }
+
   function populateMap() {
-    if(!map||!markers)return;markers.clearLayers();const points=[];
+    if(!map) initializeMap();
+    if(!map||!markers)return;
+    markers.clearLayers();const points=[];
     for(const s of stations) {
       const state=signals.get(s.id)||'unknown';if($('map-filter').value!=='all'&&$('map-filter').value!==state)continue;
-      if(s.latitude==null||s.longitude==null||Math.abs(s.latitude)>90||Math.abs(s.longitude)>180)continue;
+      const coords = getStationCoords(s);
+      if(!coords) continue;
       const box=document.createElement('div'),title=document.createElement('strong'),button=document.createElement('button'),detail=document.createElement('p');
       detail.textContent=signalLabels[state];detail.className='popup-status';
       title.textContent=s.name+' · '+s.code;button.textContent='Consultar estación';button.type='button';button.addEventListener('click',()=>{station.value=s.id;map.closePopup();$('query-form').scrollIntoView({behavior:'smooth'});});
       box.append(title,detail,button);
       const tooltip=document.createElement('span');tooltip.textContent=s.name+' · '+signalShort[state];
-      L.circleMarker([s.latitude,s.longitude],{radius:state==='empty'?6:5,weight:1.5,color:'#ffffff',fillColor:signalColors[state],fillOpacity:.95}).bindPopup(box).bindTooltip(tooltip).addTo(markers);points.push([s.latitude,s.longitude]);
+      L.circleMarker(coords,{radius:state==='empty'?6:5,weight:1.5,color:'#ffffff',fillColor:signalColors[state],fillOpacity:.95}).bindPopup(box).bindTooltip(tooltip).addTo(markers);points.push(coords);
     }
     if(points.length&&!mapFitted){map.fitBounds(points,{padding:[20,20],maxZoom:10});mapFitted=true;}
-    $('map-status').textContent=points.length+' estaciones en el mapa · '+stations.length+' en catálogo';
+    $('map-status').textContent=points.length+' estaciones con ubicación en el mapa · '+stations.length+' en catálogo';
   }
   function refreshSignals(){
     for(const state of Object.keys(signalColors))$('count-'+state).textContent=stations.filter(s=>(signals.get(s.id)||'unknown')===state).length;
@@ -40,7 +87,12 @@
   }
   $('map-filter').addEventListener('change',populateMap);
   function initializeMap(){
-    if(map)return;if(!window.L){$('map-status').textContent='No se pudo cargar el mapa; utiliza el selector de estaciones.';return;}
+    if(map)return;
+    const container = $('station-map');
+    if(!container || !window.L){
+      setTimeout(initializeMap, 100);
+      return;
+    }
     map=L.map('station-map').setView([23.5,-102],5);
     markers=L.layerGroup().addTo(map);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}).addTo(map).on('tileerror',()=>{$('map-status').textContent='El mapa base no está disponible. Las estaciones siguen disponibles en el selector.';});
@@ -57,7 +109,6 @@
   }).catch(()=>{$('signal-status').textContent='No se pudo verificar el semáforo. Gris no significa sin datos.';});
   function params(){
     const query=new URLSearchParams({stationId:station.value,product:$('query-product').value});
-    // Omit dates in live mode: the server computes its current seven-day window.
     if(period.value!=='last7'){query.set('start',start.value+':00Z');query.set('end',end.value+':00Z');}
     return query;
   }
@@ -92,8 +143,6 @@
     }
     const vals = points.map(p=>p.v);
     const min=Math.min(...vals),max=Math.max(...vals),sum=vals.reduce((a,b)=>a+b,0),avg=sum/vals.length;
-    
-    // Actualizar Tarjetas KPI
     if($('kpi-total-obs')) $('kpi-total-obs').textContent = points.length.toLocaleString();
     if($('kpi-min-val')) $('kpi-min-val').textContent = min.toFixed(2);
     if($('kpi-avg-val')) $('kpi-avg-val').textContent = avg.toFixed(2);
@@ -108,7 +157,6 @@
     node('text',{x:85,y:315,fill:'#8b9bb4','font-size':12},result.window.start.slice(0,16)+' UTC');
     node('text',{x:760,y:315,fill:'#8b9bb4','font-size':12},result.window.end.slice(0,16)+' UTC');
     
-    // Trazar puntos Neón
     for(const p of points) {
       const cx = 85+(p.t-t0)/width*895;
       const cy = 270-(p.v-min)/range*230;
