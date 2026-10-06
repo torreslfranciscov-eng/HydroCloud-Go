@@ -102,14 +102,17 @@ def engineering_value(value, sensor):
     low=sensor.get('valor_minimo',-math.inf)
     high=sensor.get('valor_maximo',math.inf)
     name = ''.join(c for c in unicodedata.normalize('NFKD', sensor['nombre'].casefold()) if not unicodedata.combining(c))
-    voltage='voltaje' in name and ('bater' in name or 'panel' in name)
-    if voltage:
-        low=max(0,low)
-    valid=low<=value<=high
-    description='OK' if valid else f'Fuera de rango: {value} [{low}, {high}]'
-    # Preserve invalid numeric evidence in description and raw_message, not as
-    # a physical battery/panel voltage. Other variables retain signed values.
-    return (None if voltage and not valid else value),valid,description
+    non_negative = any(k in name for k in ['bater', 'panel', 'precip', 'lluvia', 'pluv', 'nivel', 'gasto', 'caudal', 'humedad', 'radiacion'])
+    if non_negative and low < 0:
+        low = 0
+    if 'direccion' in name and any(k in name for k in ('viento', 'rafaga')):
+        low = max(0, low)
+        high = min(360, high)
+    if 'velocidad' in name and any(k in name for k in ('viento', 'rafaga')):
+        low = max(0, low)
+    valid = low <= value <= high
+    description = 'OK' if valid else f'Fuera de rango: {value} [{low}, {high}]'
+    return (None if non_negative and not valid else value), valid, description
 
 
 def number(token):

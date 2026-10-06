@@ -21,10 +21,15 @@ timescale-timezone-state.json
 *.log
 dds_last/
 *-voltage-backup-*.json
+smn-battery-backup-*.json
+*-battery-summary-backup-*.json
 decoder-audit-*.json
 gs300-audit-*.json
 ott-audit-*.json
 ott-config-backup-*.json
 goes-lrgs-backup-*.json
 live-ingestion-audit.json
+TX_VOLTAJE_MENSAJES_CRUDOS_*.json
+oracle-catalog-*.json
+GS300_CATALOGO_CANDIDATOS_*.json
 LRGS_VS15_24062017_mod.rar

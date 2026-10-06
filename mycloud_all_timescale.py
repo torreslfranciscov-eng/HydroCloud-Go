@@ -230,15 +230,20 @@ def _oracle_rewrite_upsert_to_merge(query, params):
             )
             insert_cols = ', '.join(c.lower() for c in cols)
             insert_values = ', '.join(f"src.{c.lower()}" for c in cols)
-            bind_vals = tuple(_clean_oracle_bind_val(v) for v in (params if isinstance(params, (tuple, list)) else (params,) if params else ()))
             select_clean = re.sub(r'^\s*SELECT\b', 'SELECT /*+ NOPARALLEL */', select_part, flags=re.I)
-            return (
+            merge_sql = (
                 f"MERGE /*+ NOPARALLEL */ INTO {table} t "
                 f"USING ({select_clean}) src "
                 f"ON ({on_clause}) "
                 f"WHEN MATCHED THEN UPDATE SET {update_clause} "
                 f"WHEN NOT MATCHED THEN INSERT ({insert_cols}) VALUES ({insert_values})"
-            ), bind_vals
+            )
+            # Unlike VALUES upserts, SELECT upserts retain the placeholders
+            # from the original query.  Oracle cannot execute PostgreSQL's
+            # ``%s`` markers; convert them here before returning the MERGE.
+            # Missing this conversion silently stopped all textual/SMN
+            # summaries while their raw DCP rows continued to be ingested.
+            return _oracle_bind_sql(merge_sql, params or ())
 
     # Caso 2: INSERT INTO ... VALUES (...) ON CONFLICT ... DO UPDATE
     m = re.search(
@@ -2266,7 +2271,7 @@ def actualizar_resumenes_dcp(dcp_id, id_asignado, ts_inicio, ts_fin, timestamp_g
                     (ts, dcp_id, sensor_id, id_asignado, variable, tipo,
                      suma, conteo, promedio, minimo, maximo, acumulado)
                     SELECT 
-                        date_trunc('hour', ts - INTERVAL '1 minute'),
+                        date_trunc('hour', ts - INTERVAL '1 minute') AS ts,
                         %s AS dcp_id,
                         sensor_id,
                         MAX(id_asignado),
@@ -2294,6 +2299,7 @@ def actualizar_resumenes_dcp(dcp_id, id_asignado, ts_inicio, ts_fin, timestamp_g
                 cur.execute("RELEASE SAVEPOINT sp_resumen_horario")
             except Exception as e:
                 cur.execute("ROLLBACK TO SAVEPOINT sp_resumen_horario")
+                print(f"[WARN] Resumen horario falló para {dcp_id}/{sensor.get('numero_sensor')}: {e}")
                 if 'ORA-65114' in str(e):
                     print("[WARN] Resúmenes suspendidos: Oracle alcanzó MAX_PDB_STORAGE")
                     break
@@ -2347,6 +2353,7 @@ def actualizar_resumenes_dcp(dcp_id, id_asignado, ts_inicio, ts_fin, timestamp_g
                     cur.execute("RELEASE SAVEPOINT sp_resumen_diario")
                 except Exception as e:
                     cur.execute("ROLLBACK TO SAVEPOINT sp_resumen_diario")
+                    print(f"[WARN] Resumen diario falló para {dcp_id}/{sensor.get('numero_sensor')} en {fecha_resumen}: {e}")
 
         conn.commit()
         cur.close()
@@ -2672,8 +2679,17 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
         for sensor in sensores:
             try:
                 cur.execute("SAVEPOINT sp_resumen_horario")
+                vmin = sensor.get("valor_minimo")
+                nombre = (sensor.get("nombre") or "").lower()
+                is_non_neg = any(k in nombre for k in ['bater', 'panel', 'precip', 'lluvia', 'pluv', 'nivel', 'gasto', 'caudal', 'humedad', 'radiacion'])
+                min_cond = ""
+                if vmin is not None and str(vmin) != "":
+                    min_cond = f" AND valor >= {float(vmin)}"
+                elif is_non_neg:
+                    min_cond = " AND valor >= 0"
+
                 if DB_BACKEND == 'oracle':
-                    cur.execute("""
+                    cur.execute(f"""
                         MERGE /*+ NO_PARALLEL(t) */ INTO resumen_horario t
                         USING (
                             SELECT /*+ NO_PARALLEL(dcp_datos) */
@@ -2693,6 +2709,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                             WHERE dcp_id = %s AND sensor_id = %s
                               AND ts > %s AND ts <= %s
                               AND valido = 1
+                              {min_cond}
                             GROUP BY TRUNC(ts - (1/1440), 'HH'), dcp_id, sensor_id
                         ) src
                         ON (t.ts = src.hora AND t.dcp_id = src.dcp_id AND t.sensor_id = src.sensor_id)
@@ -2703,7 +2720,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                         VALUES (src.hora, src.dcp_id, src.sensor_id, src.id_asignado, src.variable, src.tipo, src.suma, src.conteo, src.promedio, src.minimo, src.maximo, src.acumulado)
                     """, (dcp_id, sensor["numero_sensor"], ts_inicio, ts_fin))
                 else:
-                    cur.execute("""
+                    cur.execute(f"""
                         INSERT INTO resumen_horario 
                         (ts, dcp_id, sensor_id, id_asignado, variable, tipo,
                          suma, conteo, promedio, minimo, maximo, acumulado)
@@ -2724,6 +2741,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                         WHERE dcp_id = %s AND sensor_id = %s
                           AND ts > %s AND ts <= %s
                           AND valido = true
+                          {min_cond}
                         GROUP BY date_trunc('hour', ts - INTERVAL '1 minute'), dcp_id, sensor_id, id_asignado, variable, tipo
                         ON CONFLICT (ts, dcp_id, sensor_id) DO UPDATE SET
                             suma = EXCLUDED.suma,
@@ -2762,8 +2780,17 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
             for sensor in sensores:
                 try:
                     cur.execute("SAVEPOINT sp_resumen_diario")
+                    vmin = sensor.get("valor_minimo")
+                    nombre = (sensor.get("nombre") or "").lower()
+                    is_non_neg = any(k in nombre for k in ['bater', 'panel', 'precip', 'lluvia', 'pluv', 'nivel', 'gasto', 'caudal', 'humedad', 'radiacion'])
+                    min_cond = ""
+                    if vmin is not None and str(vmin) != "":
+                        min_cond = f" AND valor >= {float(vmin)}"
+                    elif is_non_neg:
+                        min_cond = " AND valor >= 0"
+
                     if DB_BACKEND == 'oracle':
-                        cur.execute("""
+                        cur.execute(f"""
                             MERGE /*+ NO_PARALLEL(t) */ INTO resumen_diario t
                             USING (
                                 SELECT /*+ NO_PARALLEL(dcp_datos) */
@@ -2783,6 +2810,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                                 WHERE dcp_id = %s AND sensor_id = %s
                                   AND ts >= %s AND ts < %s
                                   AND valido = 1
+                                  {min_cond}
                                 GROUP BY dcp_id, sensor_id
                             ) src
                             ON (t.fecha = src.fecha AND t.dcp_id = src.dcp_id AND t.sensor_id = src.sensor_id)
@@ -2793,7 +2821,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                             VALUES (src.fecha, src.dcp_id, src.sensor_id, src.id_asignado, src.variable, src.tipo, src.suma, src.conteo, src.promedio, src.minimo, src.maximo, src.acumulado)
                         """, (fecha_resumen, dcp_id, sensor["numero_sensor"], ts_dia_inicio, ts_dia_fin))
                     else:
-                        cur.execute("""
+                        cur.execute(f"""
                             INSERT INTO resumen_diario 
                             (fecha, dcp_id, sensor_id, id_asignado, variable, tipo,
                              suma, conteo, promedio, minimo, maximo, acumulado)
@@ -2814,6 +2842,7 @@ def insertar_datos_mapeados(dcp_id: str, id_asignado: str, timestamp_goes: datet
                             WHERE dcp_id = %s AND sensor_id = %s
                               AND ts >= %s AND ts < %s
                               AND valido = true
+                              {min_cond}
                             GROUP BY dcp_id, sensor_id
                             ON CONFLICT (fecha, dcp_id, sensor_id) DO UPDATE SET
                                 suma = EXCLUDED.suma,

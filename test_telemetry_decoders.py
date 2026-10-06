@@ -149,6 +149,14 @@ class DecoderTests(unittest.TestCase):
         with patch.dict(d.os.environ, {'DECODER_PROFILES_PATH':''}),self.assertRaises(ValueError):
             d.record_sensors('SO06',d.Values(row[:-1],'default'),sensors)
 
+    def test_physical_wind_bounds_reject_corrupt_text_values(self):
+        direction = dict(nombre='Dirección del viento')
+        speed = dict(nombre='Velocidad de ráfaga')
+        self.assertEqual(d.engineering_value(360, direction)[:2], (360.0, True))
+        self.assertEqual(d.engineering_value(-1279.07, direction)[:2], (-1279.07, False))
+        self.assertEqual(d.engineering_value(361, direction)[:2], (361.0, False))
+        self.assertEqual(d.engineering_value(-1, speed)[:2], (-1.0, False))
+
     def test_mixed_smn_tables_keep_voltage_order(self):
         sensors=[dict(numero_sensor=f'{n:04d}') for n in range(1,14)]
         records=d.text_records(b'2 15:00:00 349,346,4.8,7.9,27.2,77,979.0,0.00,268,#2,#2\r\n4 15:00:00 12.9,13.0',NOW,'SMN_ver2')
