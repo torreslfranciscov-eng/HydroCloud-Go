@@ -7,11 +7,23 @@ __pycache__/
 env/
 venv/
 ENV/
+.venv/
+.venv*/
 
-# System / IDE
+# .NET Build outputs
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+HydroCloud.Admin/Properties/launchSettings.json
+
+# System / IDE / Temp
 .DS_Store
+**/.DS_Store
 .vscode/
 .idea/
+.tmp/
+
 
 # HydroCloud temporary state and logs
 migration-report.json

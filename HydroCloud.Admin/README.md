@@ -1,7 +1,21 @@
+---
+title: HydroCloud GOES Monitor
+emoji: 🛰️
+colorFrom: blue
+colorTo: cyan
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # HydroCloud Administración
 
 Aplicación web ASP.NET Core MVC / .NET 8, interfaz en español, Oracle ODP.NET Core.
+
+La portada obtiene su catálogo y relaciones GOES directamente de SQL Server `DB_ATLAS` (`dbo.Estacion` y `dbo.DatosGOES`); las series temporales se consultan en PostgreSQL/Timescale `mycloud_timescale`. La administración de inventario continúa usando Oracle.
 La portada ahora ofrece [consulta pública de siete días, consulta histórica autenticada, mapa, gráficas, tablas, CSV y métricas de visitas](CONSULTAS.md). La administración sigue en `/Stations` y requiere rol Administrator.
+
+Las series temporales usan Highcharts Stock 13.1.1 servido localmente. Highcharts Stock es software propietario: el despliegue de producción debe estar cubierto por la licencia de Highsoft correspondiente.
 Implementada contra la estructura real de `HYDROCLOUD.ESTACION`, sus catálogos y siete módulos relacionados, verificados mediante consultas de solo lectura. Ver [análisis del esquema](SCHEMA-REVIEW.md).
 
 ## Funcionalidad
@@ -20,7 +34,7 @@ Implementada contra la estructura real de `HYDROCLOUD.ESTACION`, sus catálogos 
 - Baja lógica de sensor; finalización de cota; eliminación de configuración GOES/GPRS/radio con confirmación de clave. Crear/eliminar configuraciones sincroniza el indicador del canal dentro de la misma transacción.
 - Los inventarios se crean y editan; no se ofrece borrado hasta definir su política de conservación. No hay carga de imágenes: solo referencia textual existente.
 
-No crea tablas ni ejecuta migraciones al iniciar. No modifica la configuración del colector Python ni garantiza su recarga inmediata. Marcar un indicador de canal en Datos generales no crea su configuración. La consulta de mediciones y productos almacenados en `MYCLOUD_TS` está disponible en la portada. Administración de alertas por cliente/usuario, bitácoras, curvas gasto/elevación y catálogos globales quedan pendientes.
+No crea tablas ni ejecuta migraciones al iniciar. No modifica la configuración del colector Python ni garantiza su recarga inmediata. Marcar un indicador de canal en Datos generales no crea su configuración. La consulta de mediciones y productos almacenados en `mycloud_timescale` está disponible en la portada. Administración de alertas por cliente/usuario, bitácoras, curvas gasto/elevación y catálogos globales quedan pendientes.
 
 ## Configuración y ejecución local
 
@@ -28,6 +42,8 @@ Desde la raíz del repositorio:
 
 ```sh
 dotnet build HydroCloud.Admin/HydroCloud.Admin.csproj
+dotnet user-secrets set --project HydroCloud.Admin 'ConnectionStrings:Atlas' 'Server=SERVIDOR,1433;Database=DB_ATLAS;User Id=USUARIO_LECTURA;Password=CONTRASENA;Encrypt=true;TrustServerCertificate=true;Connect Timeout=15;'
+dotnet user-secrets set --project HydroCloud.Admin 'ConnectionStrings:Postgres' 'Host=SERVIDOR;Port=5432;Database=mycloud_timescale;Username=USUARIO_LECTURA;Password=CONTRASENA;SSL Mode=Prefer;Timeout=15;Command Timeout=30;'
 dotnet user-secrets set --project HydroCloud.Admin 'ConnectionStrings:HydroCloud' 'User Id=HYDROCLOUD;Password=CONTRASENA;Data Source=(description=(address=(protocol=tcps)(host=adb.mx-queretaro-1.oraclecloud.com)(port=1521))(connect_data=(service_name=ga4e34d25e10323_hydroclouddb_low.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)));Pooling=true;Min Pool Size=0;Max Pool Size=6;Connection Timeout=15;'
 dotnet user-secrets set --project HydroCloud.Admin 'Admin:Username' 'administrador'
 ```
@@ -44,7 +60,7 @@ Abre http://127.0.0.1:5080. Se requiere permitir la IP de salida en la ACL de Or
 
 ## Producción
 
-Publicar con `dotnet publish HydroCloud.Admin -c Release`. Configurar por gestor de secretos o variables de entorno `ConnectionStrings__HydroCloud`, `Admin__Username`, `Admin__PasswordHash` y `AllowedHosts` (dominio real).
+Publicar con `dotnet publish HydroCloud.Admin -c Release`. Configurar por gestor de secretos o variables de entorno `ConnectionStrings__Atlas`, `ConnectionStrings__Postgres`, `ConnectionStrings__HydroCloud`, `Admin__Username`, `Admin__PasswordHash` y `AllowedHosts` (dominio real).
 
 Servir con HTTPS. Si se aloja detrás de proxy, configurar encabezados reenviados y proxies confiables según el proveedor antes de habilitar la redirección HTTPS. Persistir y proteger el llavero de ASP.NET Data Protection en despliegues con contenedores y compartirlo si hay varias réplicas. El Dockerfile es una base de empaquetado, no configura terminación TLS ni proxy.
 

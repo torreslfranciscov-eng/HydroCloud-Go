@@ -9,11 +9,12 @@
 - El formulario comienza en «Últimos 7 días (automático)»: omite fechas fijas y cada petición usa la hora actual del servidor. La página puede permanecer abierta sin que caduque su rango predeterminado. Las fechas mostradas se actualizan con la ventana realmente consultada. La descarga automática vuelve a consultar una ventana móvil actualizada; puede variar respecto a una tabla cargada anteriormente.
 - «Fechas personalizadas» habilita los controles; no ajusta silenciosamente lo elegido. Si el rango queda fuera de la ventana pública, el mensaje explica cómo volver al modo automático o acceder al histórico.
 - Se muestran y exportan como máximo 2,000 filas por petición, con aviso de resultado parcial y nombre CSV `PARCIAL-2000`. Se puede recorrer todo el histórico con rangos menores/resúmenes; todavía no hay exportación masiva asincrónica ni paginación de series.
-- Tabla y gráfica muestran las mismas filas. El selector de serie evita mezclar sensores/variables en una sola escala. La gráfica es de puntos: no interpola valores faltantes. Estadísticas de gráfica calculadas únicamente sobre la serie mostrada; no representan el periodo entero si hay truncamiento.
+- Tabla y gráfica muestran las mismas filas. Highstock ofrece zoom, selector de rango y navegador temporal. En modo individual usa el tipo configurado para el sensor en `DB_ATLAS.dbo.TipoSensor.TipoGrafica`; por compatibilidad, instalaciones anteriores pueden resolverlo desde `dbo.Sensor.TipoGrafica`. En modo combinado cada serie conserva su propio tipo, nombre y unidad. Las estadísticas se calculan únicamente sobre las series visibles y no representan el periodo entero si hay truncamiento.
+- La presentación individual se especializa sin crear más paneles: nivel de agua se identifica como limnigrama, precipitación como hietograma, caudal como hidrograma, viento como anemograma, temperatura como termograma y presión como barograma. El hietograma superpone además el acumulado progresivo del periodo en un eje secundario; solo se suman aportaciones no negativas y la estadística principal permanece referida a las lecturas incrementales. También se ajustan escalas físicas (precipitación desde cero, humedad 0–100 %, rumbo 0–360°), colores, trazo y precisión del tooltip; `TipoGrafica` continúa determinando la geometría base de Highstock.
 
 ## Productos implementados y fuentes
 
-| Producto | MYCLOUD_TS | Criterio temporal |
+| Producto | PostgreSQL/Timescale | Criterio temporal |
 | --- | --- | --- |
 | Lecturas y calidad | DCP_DATOS | TS |
 | Resumen horario | RESUMEN_HORARIO | Hora completa dentro del rango |
@@ -25,9 +26,9 @@
 | Eventos de lluvia | EVENTOS_LLUVIA | Inicio y fin/última actualización dentro del rango |
 | Alertas de lluvia registradas | ALERTAS_PRECIPITACION | TS |
 
-Los productos almacenados no se recalculan ni certifican. La ausencia de registros no implica cero ni ausencia de un fenómeno. Los resúmenes legacy pueden contener valores inválidos; el portal muestra lo almacenado. Fechas DATE de resúmenes se presentan como calendario UTC; revisar esta convención si se redefine la fecha hidrológica del productor.
+Los productos almacenados no se recalculan ni certifican. La ausencia de registros no implica cero ni ausencia de un fenómeno. Los resúmenes legacy pueden contener valores inválidos; el portal muestra lo almacenado. Fechas DATE de resúmenes se presentan como calendario UTC. El resumen horario agrupa mediciones de :01 a la siguiente :00; el diario usa esa misma frontera y cubre desde las 00:01 UTC hasta las 00:00 UTC del día siguiente, de modo que sus acumulados diarios coincidan con la suma de sus horas.
 
-La estación y sus DCP se resuelven desde HYDROCLOUD con parámetros enlazados. No se aceptan nombres de tablas ni identificadores DCP arbitrarios del cliente. Los productos GOES no representan transmisiones GPRS/radio: no se encontró un histórico equivalente de esos canales. No se exponen payloads crudos, direcciones de servidores, cuentas ni configuración privada.
+La estación y sus DCP se resuelven con parámetros enlazados desde SQL Server `DB_ATLAS`: `dbo.Estacion` y `dbo.DatosGOES`. El catálogo del mapa incluye exclusivamente estaciones con `Activo=1 AND Visible=1`; ante una interrupción temporal se identifica explícitamente la última copia verificada mientras se reintenta la conexión. Una estación se clasifica como presa cuando `EsPresa=1` o cuando `Nombre` contiene la palabra `PRESA`; esta segunda regla es necesaria porque actualmente las 770 filas activas/visibles tienen `EsPresa=0` y permite identificar 54 registros por su nombre almacenado. Las series y productos hidrometeorológicos se consultan después en PostgreSQL/Timescale `mycloud_timescale`. No se aceptan nombres de tablas ni identificadores DCP arbitrarios del cliente. Los productos GOES no representan transmisiones GPRS/radio. No se exponen payloads crudos, direcciones de servidores, cuentas ni configuración privada.
 
 ### Alcance todavía pendiente
 
@@ -35,25 +36,33 @@ Comparación simultánea entre estaciones, unidades amigables vinculadas a cada 
 
 ## Mapa
 
-La portada compacta elimina el bloque de bienvenida y la navegación pública redundante, conserva el aviso de siete días en una línea y prioriza el mapa. Leyenda con conteos, filtro de estados, etiquetas en selector y detalle por marcador; no se depende únicamente del color.
+La portada compacta elimina el bloque de bienvenida y la navegación pública redundante, conserva el aviso de siete días en una línea y prioriza el mapa. Leyenda con conteos, filtro de estados, etiquetas en selector y detalle por marcador; no se depende únicamente del color. Las estaciones clasificadas como presa por `EsPresa=1` o por la palabra `PRESA` en su nombre se muestran con un pin distintivo y pueden aislarse con el filtro **Presas**.
 
-### Semáforo de presencia de mediciones
+Al pasar el puntero por una presa, el tooltip muestra su última lectura de nivel. El catálogo se toma de `DB_ATLAS.dbo.Sensor`, unido a `TipoSensor`, `UnidadMedida` y `DatosGOES`; solo admite los tipos exactos `Nivel de agua` y `Nivel Recipiente`. La lectura se busca en PostgreSQL `mycloud_timescale.public.dcp_datos` mediante la pareja indexada `dcp_id + sensor_id`. Se muestran valor, unidad, fecha UTC, tipo y advertencia cuando `valido=false`. La ausencia de sensor o lectura se declara explícitamente y nunca se sustituye con otro parámetro.
 
-Consulta directa de `DCP_DATOS` y `DCP_HEADERS`, enlazada por `ID_ASIGNADO` y los `IDSATELITAL` configurados en `DATOSGOES`. Usa el prefijo DCP del índice existente, cuatro consultas concurrentes como máximo, plazo total de 55 segundos y caché compartida. Los marcadores aparecen antes de terminar la verificación.
+### Semáforo operativo de transmisiones
 
-- Verde: existe alguna medición en las últimas 24 horas.
-- Naranja: existe una transmisión GOES real en las últimas 24 horas, pero no
-  produjo mediciones decodificadas. Indica contenido truncado, corrupto o
-  incompatible con el decodificador o catálogo configurado; no equivale a una
-  estación apagada.
-- Amarillo: existe alguna medición en siete días, pero ninguna en 24 horas.
-- Rojo: existe histórico asociado, pero ninguna medición en siete días.
-- Rojo oscuro: no se encontraron mediciones asociadas a la clave y los DCP actualmente configurados. No equivale a afirmar que nunca haya datos con otra clave/DCP histórico.
-- Gris: falta vínculo DCP verificable o una consulta falló/agotó su tiempo. Nunca se interpreta un error como ausencia de datos.
+Cruza los `IDSATELITAL` configurados en `DB_ATLAS.dbo.DatosGOES` con
+`mycloud_timescale.public.estatus_estaciones`. La tabla de ingesta conserva la
+última TX y el intervalo esperado por DCP; el portal resuelve todos los estados
+en una sola consulta y mantiene una caché compartida de 30 segundos.
 
-Ventanas UTC móviles calculadas en servidor; se excluyen timestamps futuros. Para varios DCP se combina la evidencia; un error sin evidencia de transmisión o datos en 24 horas deja el estado sin verificar. El verde consulta `DCP_DATOS`; el naranja exige una fila reciente y real en `DCP_HEADERS` —excluye avisos `Missing message` y `SATLINK DATA BUFFER EMPTY`— sin medición reciente decodificada. La modalidad pública solo recibe categorías, no fechas ni valores antiguos. Estaciones GPRS/radio sin vínculo GOES quedan sin verificar hasta contar con un índice/asociación adecuado para su fuente. No se usa `ULTIMAS_MEDICIONES`: la inspección encontró ese resumen atrasado frente a la tabla de lecturas.
+- Verde: última TX dentro de 1.5 veces el intervalo esperado.
+- Amarillo: TX retrasada, entre 1.5 y 3 veces el intervalo esperado.
+- Rojo: fuera de línea, por encima de 3 veces el intervalo esperado.
+- Rojo oscuro: DCP configurado sin historial de TX.
+- Gris: estación sin DCP GOES vinculado, timestamp futuro o consulta fallida.
+
+Para estaciones con varios DCP se conserva el mejor estado operativo comprobado.
+La modalidad pública recibe únicamente la categoría, nunca la fecha de última TX.
+Las estaciones GPRS/radio sin vínculo GOES permanecen sin verificar hasta contar
+con una asociación equivalente para su fuente.
 
 [Leaflet 1.9.4](https://leafletjs.com/download.html) se sirve localmente con su licencia en `wwwroot/vendor/leaflet`. El mapa base se carga automáticamente al abrir la portada; el usuario recibe aviso del proveedor externo. OpenStreetMap recibe la IP/origen de la petición de teselas, aunque el portal no registre IP en sus métricas. Se mantienen atribución y encabezado Referer según la [política de teselas de OSM](https://operations.osmfoundation.org/policies/tiles/). Sin mapa base, el selector de estaciones y las consultas siguen funcionando. Antes de despliegues con tráfico considerable, contratar/configurar un proveedor adecuado; el servicio comunitario no tiene SLA.
+
+El selector de capas ofrece tres fondos mutuamente excluyentes: OpenStreetMap cartográfico, OpenTopoMap para relieve y Esri World Imagery para satélite. Cada proveedor recibe directamente las solicitudes de teselas del navegador y conserva su atribución en Leaflet; revisar sus términos, cuotas y política de privacidad antes de producción. Las estaciones, ciclones y sismos permanecen en grupos locales independientes al cambiar el fondo.
+
+[Anime.js 4.5.0](https://animejs.com/) se sirve localmente desde `wwwroot/vendor/animejs` junto con su licencia MIT. Solo anima la apertura del panel, la transición entre fondos y la entrada limitada de símbolos visibles; no altera coordenadas de Leaflet, limita la animación a 120 elementos y respeta `prefers-reduced-motion`.
 
 ## Conteo de visitantes
 
@@ -67,11 +76,13 @@ Ventanas UTC móviles calculadas en servidor; se excluyen timestamps futuros. Pa
 
 ## Configuración adicional
 
-`ConnectionStrings__TimeSeries`: conexión a MYCLOUD_TS. Usar un usuario de solo lectura con SELECT sobre las nueve fuentes en producción. La aplicación no realiza DDL ni DML en ese esquema.
+`ConnectionStrings__Atlas`: conexión de solo lectura a SQL Server `DB_ATLAS`, usada para el catálogo `dbo.Estacion` y la relación `dbo.DatosGOES`.
+
+`ConnectionStrings__Postgres`: conexión de solo lectura a PostgreSQL `mycloud_timescale`, usada tanto por la consulta temporal como por los niveles y condiciones del mapa. Usar un usuario con SELECT sobre las nueve fuentes en producción. La aplicación no realiza DDL ni DML en ese esquema.
 
 `Consultation__Username` y `Consultation__PasswordHash`: cuenta lectora de consulta histórica, distinta de `Admin__Username`. Generar el hash con el comando existente `--hash-password`. No hay registro público de cuentas ni restablecimiento de contraseña implementado. La configuración de cuenta lectora es una primera modalidad local, no un directorio multiusuario.
 
-Límite de 60 peticiones/minuto por IP para endpoints de consulta y 30 segundos por comando Oracle. Detrás de un proxy, configurar proxies confiables antes de usar IP reenviada; nunca confiar en encabezados arbitrarios. TLS requerido para despliegue público. Respuestas de consulta y panel de visitas no se almacenan en caché HTTP.
+Límite de 60 peticiones/minuto por IP para endpoints de consulta y 60 segundos por comando PostgreSQL. Detrás de un proxy, configurar proxies confiables antes de usar IP reenviada; nunca confiar en encabezados arbitrarios. TLS requerido para despliegue público. Respuestas de consulta y panel de visitas no se almacenan en caché HTTP.
 
 ## Verificación
 

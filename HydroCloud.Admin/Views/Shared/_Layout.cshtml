@@ -7,27 +7,28 @@
     <link rel="icon" type="image/jpeg" href="~/favicon.jpg"/>
     <link rel="stylesheet" href="~/hydro-cyber.css" asp-append-version="true"/>
     <link rel="stylesheet" href="~/vendor/leaflet/leaflet.css"/>
+    <link rel="stylesheet" href="~/explore.css" asp-append-version="true"/>
     <script src="~/vendor/chart.umd.min.js"></script>
 </head>
-<body>
+<body class="@(ViewData["CompactExplore"] as bool? == true ? "compact-explore" : null)">
 <header class="hydro-header">
     <div class="brand-container">
         <a asp-controller="Explore" asp-action="Index" style="display:flex;align-items:center;gap:12px;text-decoration:none">
             <img src="~/hydrocloud_logo.jpg" alt="HydroCloud Studio" class="brand-logo-img"/>
             <div>
-                <span class="brand-title">HydroCloud <span style="color:var(--cyber-cyan);font-weight:300">Data Studio</span></span>
-                <span class="brand-subtitle">Plataforma de Análisis Hidrometeorológico &middot; .NET 8</span>
+                <span class="brand-title">HydroCloud <span class="brand-product">Data Studio</span></span>
+                <span class="brand-subtitle">Análisis hidrometeorológico</span>
             </div>
         </a>
-        <span class="live-badge" style="margin-left:16px"><span class="live-pulse-dot"></span> SISTEMA OPERATIVO</span>
+        <span class="system-status"><span class="live-pulse-dot"></span> Operativo</span>
     </div>
 
     <div class="nav-cyber-links">
-        <a asp-controller="Explore" asp-action="Index" class="nav-cyber-link active">🗺️ Mapa y Consultas</a>
+        <a asp-controller="Explore" asp-action="Index" class="nav-cyber-link active">Mapa y consultas</a>
         @if (User.IsInRole("Administrator"))
         {
-            <a asp-controller="Stations" asp-action="Index" class="nav-cyber-link">⚙️ Estaciones</a>
-            <a asp-controller="Explore" asp-action="Visitors" class="nav-cyber-link">📊 Auditoría</a>
+            <a asp-controller="Stations" asp-action="Index" class="nav-cyber-link">Estaciones</a>
+            <a asp-controller="Explore" asp-action="Visitors" class="nav-cyber-link">Auditoría</a>
         }
         @if (User.Identity?.IsAuthenticated == true)
         {
@@ -38,7 +39,7 @@
         }
         else
         {
-            <a asp-controller="Account" asp-action="Login" class="btn-cyber-primary" style="padding:6px 14px;font-size:0.82rem">Acceso Histórico</a>
+            <a asp-controller="Account" asp-action="Login" class="header-login">Acceso histórico</a>
         }
     </div>
 </header>

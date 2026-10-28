@@ -1,18 +1,14 @@
 services:
   - type: web
-    name: hydrocloud-goes-service
-    env: docker
-    plan: starter
+    name: hydrocloud-web
+    runtime: docker
+    rootDir: HydroCloud.Admin
+    dockerfilePath: ./Dockerfile
+    plan: free
     region: oregon
-    healthCheckPath: /api/status
+    healthCheckPath: /Explore/Stations
     envVars:
-      - key: TZ
-        value: UTC
-      - key: DB_BACKEND
-        value: oracle
-      - key: ORACLE_USER
-        value: MYCLOUD_TS
-      - key: ORACLE_PASSWORD
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__Postgres
         sync: false
-      - key: ORACLE_DSN
-        value: (description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=1522)(host=adb.mx-queretaro-1.oraclecloud.com))(connect_data=(service_name=ga4e34d25e10323_hydroclouddb_high.adb.oraclecloud.com))(security=(ssl_server_dn_match=yes)))

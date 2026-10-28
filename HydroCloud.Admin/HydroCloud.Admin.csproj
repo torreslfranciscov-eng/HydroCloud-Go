@@ -5,5 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>hydrocloud-admin-local</UserSecretsId>
   </PropertyGroup>
-  <ItemGroup><PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" /></ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+    <PackageReference Include="Npgsql" Version="8.0.5" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
+  </ItemGroup>
 </Project>

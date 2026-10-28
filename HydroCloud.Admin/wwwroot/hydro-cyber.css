@@ -1,43 +1,45 @@
 /* ==========================================================================
-   HYDROCLOUD DATA STUDIO - HYDRO-CYBER CONTROL CENTER DESIGN SYSTEM
+   HYDROCLOUD DATA STUDIO - LIGHT OPERATIONS DESIGN SYSTEM
    ========================================================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Outfit:wght@300;400;500;600;700&display=swap');
 
 :root {
-  /* Dark Space & Glassmorphism Tokens */
-  --bg-deep-space: #06090e;
-  --bg-card-glass: rgba(13, 19, 31, 0.78);
-  --bg-card-hover: rgba(20, 30, 48, 0.85);
-  --bg-header-glass: rgba(8, 12, 20, 0.90);
-  --glass-blur: blur(16px);
-  --glass-border: rgba(0, 242, 254, 0.18);
-  --glass-border-glow: rgba(0, 242, 254, 0.45);
+  /* Superficies claras y funcionales */
+  --bg-deep-space: #eef3f5;
+  --bg-card-glass: #ffffff;
+  --bg-card-hover: #f8fbfc;
+  --bg-header-glass: rgba(255, 255, 255, 0.96);
+  --glass-blur: blur(12px);
+  --glass-border: #d7e2e6;
+  --glass-border-glow: #76aeb9;
 
-  /* Hydro-Cyber Palette */
-  --cyber-cyan: #00f2fe;        /* Telemetría activa y precipitaciones */
-  --cyber-blue: #4facfe;        /* Niveles hidrométricos e hidrogramas */
-  --cyber-green: #00ff9d;       /* Estación 100% Operativa */
-  --cyber-yellow: #ffb703;      /* Advertencia de Nivel / Lluvia Intensa */
-  --cyber-red: #ff0055;         /* Alerta Crítica / Desbordamiento / Offline */
-  --cyber-purple: #9d4edd;      /* Voltajes y sensores meteorológicos */
-  --text-primary: #e0e6ed;
-  --text-muted: #8b9bb4;
-  --text-dim: #4d5b70;
+  /* Paleta hidráulica de alto contraste */
+  --cyber-cyan: #0b7285;        /* Telemetría activa y precipitaciones */
+  --cyber-blue: #2563a6;        /* Niveles hidrométricos e hidrogramas */
+  --cyber-green: #18764f;       /* Estación 100% Operativa */
+  --cyber-yellow: #9a5b00;      /* Advertencia de Nivel / Lluvia Intensa */
+  --cyber-red: #c53030;         /* Alerta Crítica / Desbordamiento / Offline */
+  --cyber-purple: #7041a0;      /* Voltajes y sensores meteorológicos */
+  --text-primary: #18323b;
+  --text-muted: #59717a;
+  --text-dim: #748990;
 
   --font-main: 'Outfit', 'Segoe UI', system-ui, sans-serif;
   --font-code: 'JetBrains Mono', monospace;
 
   --radius-card: 12px;
   --radius-pill: 30px;
-  --shadow-neon: 0 0 20px rgba(0, 242, 254, 0.15);
-  --shadow-alert: 0 0 20px rgba(255, 0, 85, 0.25);
+  --shadow-neon: 0 8px 22px rgba(24, 50, 59, 0.10);
+  --shadow-alert: 0 6px 18px rgba(197, 48, 48, 0.18);
 }
 
 /* ===== GLOBAL RESETS & SCROLLBAR ===== */
 *{margin:0;padding:0;box-sizing:border-box}
 html, body {
   background: var(--bg-deep-space);
+  background-image: linear-gradient(180deg, #f8fafb 0, #eef3f5 420px);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-main);
   min-height: 100vh;
@@ -45,8 +47,8 @@ html, body {
 }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #080d14; }
-::-webkit-scrollbar-thumb { background: #1c283c; border-radius: 4px; }
+::-webkit-scrollbar-track { background: #edf2f4; }
+::-webkit-scrollbar-thumb { background: #aabdc3; border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--cyber-cyan); }
 
 /* ===== HYDRO-CYBER TOP BAR HEADER ===== */
@@ -61,7 +63,7 @@ header.hydro-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  box-shadow: 0 2px 14px rgba(24, 50, 59, 0.09);
 }
 
 .brand-container {
@@ -74,7 +76,7 @@ header.hydro-header {
   height: 42px;
   width: auto;
   border-radius: 8px;
-  box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+  box-shadow: 0 3px 10px rgba(24, 50, 59, 0.18);
   transition: transform 0.3s ease;
 }
 
@@ -86,7 +88,7 @@ header.hydro-header {
   font-size: 1.25rem;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #ffffff 0%, var(--cyber-cyan) 100%);
+  background: linear-gradient(135deg, #18323b 0%, var(--cyber-cyan) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -105,7 +107,7 @@ header.hydro-header {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: rgba(0, 255, 157, 0.1);
+  background: #edf8f3;
   border: 1px solid var(--cyber-green);
   color: var(--cyber-green);
   padding: 4px 10px;
@@ -120,7 +122,7 @@ header.hydro-header {
   height: 8px;
   border-radius: 50%;
   background: var(--cyber-green);
-  box-shadow: 0 0 8px var(--cyber-green);
+  box-shadow: 0 0 0 4px rgba(24, 118, 79, 0.12);
   animation: pulse-glow 1.8s infinite;
 }
 
@@ -148,8 +150,8 @@ header.hydro-header {
 
 .nav-cyber-link:hover, .nav-cyber-link.active {
   color: var(--cyber-cyan);
-  background: rgba(0, 242, 254, 0.08);
-  border: 1px solid rgba(0, 242, 254, 0.2);
+  background: #eaf4f6;
+  border: 1px solid #c4dce1;
 }
 
 /* ===== MAIN CONTAINER & GRID ===== */
@@ -161,12 +163,11 @@ header.hydro-header {
 
 .cyber-card {
   background: var(--bg-card-glass);
-  backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-card);
   padding: 20px;
   margin-bottom: 24px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 5px 18px rgba(24, 50, 59, 0.08);
   transition: border-color 0.3s ease, box-shadow 0.3s ease;
 }
 
@@ -190,7 +191,7 @@ header.hydro-header {
   height: 480px;
   width: 100%;
   border-radius: 8px;
-  border: 1px solid #1a283c;
+  border: 1px solid #cbd9dd;
   overflow: hidden;
 }
 
@@ -217,8 +218,8 @@ header.hydro-header {
 }
 
 .cyber-select, .cyber-input {
-  background: #0d1420;
-  border: 1px solid #1e2c42;
+  background: #ffffff;
+  border: 1px solid #b9cbd1;
   color: var(--text-primary);
   padding: 10px 14px;
   border-radius: 6px;
@@ -230,12 +231,12 @@ header.hydro-header {
 
 .cyber-select:focus, .cyber-input:focus {
   border-color: var(--cyber-cyan);
-  box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+  box-shadow: 0 0 0 3px rgba(11, 114, 133, 0.13);
 }
 
 /* ===== BUTTONS ===== */
 .btn-cyber-primary {
-  background: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+  background: #0b7285;
   color: #fff;
   border: none;
   padding: 10px 22px;
@@ -251,11 +252,12 @@ header.hydro-header {
 
 .btn-cyber-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 114, 255, 0.4);
+  background: #085e6e;
+  box-shadow: 0 5px 14px rgba(11, 114, 133, 0.24);
 }
 
 .btn-cyber-secondary {
-  background: rgba(0, 255, 157, 0.1);
+  background: #f3faf7;
   border: 1px solid var(--cyber-green);
   color: var(--cyber-green);
   padding: 10px 20px;
@@ -267,7 +269,7 @@ header.hydro-header {
 }
 
 .btn-cyber-secondary:hover {
-  background: rgba(0, 255, 157, 0.2);
+  background: #e4f3ec;
   transform: translateY(-2px);
 }
 
@@ -280,8 +282,8 @@ header.hydro-header {
 }
 
 .kpi-card {
-  background: #0a101b;
-  border: 1px solid #162234;
+  background: #ffffff;
+  border: 1px solid #d7e2e6;
   border-radius: 8px;
   padding: 14px;
   text-align: center;
@@ -311,14 +313,14 @@ header.hydro-header {
 table.cyber-table {
   width: 100%;
   border-collapse: collapse;
-  background: #090e17;
+  background: #ffffff;
   border-radius: 8px;
   overflow: hidden;
   font-size: 0.85rem;
 }
 
 table.cyber-table th {
-  background: #0d1522;
+  background: #edf4f6;
   color: var(--text-muted);
   font-weight: 600;
   text-transform: uppercase;
@@ -331,16 +333,16 @@ table.cyber-table th {
 
 table.cyber-table td {
   padding: 10px 14px;
-  border-bottom: 1px solid #141e2e;
+  border-bottom: 1px solid #e2eaed;
   color: var(--text-primary);
 }
 
 table.cyber-table tr:hover td {
-  background: #101928;
+  background: #f2f7f8;
 }
 
 .badge-valid {
-  background: rgba(0, 255, 157, 0.15);
+  background: #e8f6ef;
   color: var(--cyber-green);
   border: 1px solid var(--cyber-green);
   padding: 2px 8px;

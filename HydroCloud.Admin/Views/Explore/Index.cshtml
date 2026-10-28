@@ -6,75 +6,113 @@
 
 <div id="explorer" data-authenticated="@(auth ? "true" : "false")">
 
-    <!-- HERO / TITLE BANNER -->
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
-        <div>
-            <h1 style="font-size:1.8rem;font-weight:700;color:var(--cyber-cyan);margin:0;display:flex;align-items:center;gap:12px">
-                🗺️ Visor Espacial &amp; Estudio temporal de datos
-            </h1>
-            <p style="color:var(--text-muted);font-size:0.88rem;margin-top:4px">
-                Acceso a telemetría en tiempo real, histórico GOES y análisis multivariable de la red hidrométrica
-            </p>
-        </div>
-        <div>
-            @if (!auth)
-            {
-                <span class="live-badge" style="background:rgba(0,242,254,0.1);border-color:var(--cyber-cyan);color:var(--cyber-cyan)">
-                    🔍 Modo Consulta Libre (Últimos 7 días)
-                </span>
-            }
-            else
-            {
-                <span class="live-badge" style="background:rgba(157,78,221,0.15);border-color:var(--cyber-purple);color:var(--cyber-purple)">
-                    ⚡ Histórico Completo Desbloqueado
-                </span>
-            }
-        </div>
-    </div>
-
     <!-- SECCIÓN 1: MAPA GIS Y SALUD OPERATIVA -->
-    <section class="cyber-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <section class="cyber-card map-card">
+        <div class="map-commandbar">
             <h2 class="cyber-card-title">
-                🛰️ Ubicación Espacial &amp; Semáforo de Disponibilidad (742 Estaciones)
+                Red hidrométrica
             </h2>
-            <div style="display:flex;gap:12px;align-items:center">
-                <label style="font-size:0.8rem;color:var(--text-muted)">Filtrar por Estado:</label>
-                <select id="map-filter" class="cyber-select" style="padding:6px 12px;font-size:0.82rem">
-                    <option value="all">Todas las estaciones</option>
-                    <option value="recent">🟢 Transmisión reciente (≤24 h)</option>
-                    <option value="corrupt">🟠 Transmite · contenido inválido</option>
-                    <option value="week">🟡 Datos de 1–7 días</option>
-                    <option value="historical">🔴 Solo histórico (>7 días)</option>
-                    <option value="empty">⚪ Sin mediciones asociadas</option>
+
+            <div class="map-health-legend" aria-label="Disponibilidad de estaciones">
+                <span title="Última TX dentro del intervalo esperado"><i class="signal recent"></i>A tiempo <b id="count-recent">—</b></span>
+                <span title="Última TX excede el intervalo esperado"><i class="signal week"></i>Retrasada <b id="count-week">—</b></span>
+                <span title="Sin TX dentro del margen operativo"><i class="signal historical"></i>Fuera de línea <b id="count-historical">—</b></span>
+                <span title="DCP configurado sin historial de TX"><i class="signal empty"></i>Sin TX <b id="count-empty">—</b></span>
+                <span title="Sin DCP vinculado o estado no verificable"><i class="signal unknown"></i>Sin verificar <b id="count-unknown">—</b></span>
+                <span title="EsPresa=1 o nombre con la palabra PRESA"><span class="dam-key" aria-hidden="true"><span>≋</span></span> Presas <b id="count-dams">—</b></span>
+                <span title="Relaciones hidrológicas registradas en DB_ATLAS"><span class="upstream-key" aria-hidden="true"></span> Aguas arriba</span>
+            </div>
+
+            <div class="map-filter-control">
+                <label for="map-filter">Vista</label>
+                <select id="map-filter" class="cyber-select">
+                    <option value="all" selected>Todas las estaciones</option>
+                    <option value="dams">Presas (campo o nombre)</option>
+                    <option value="recent">🟢 TX a tiempo</option>
+                    <option value="week">🟡 TX retrasada</option>
+                    <option value="historical">🔴 Fuera de línea</option>
+                    <option value="empty">⚫ Sin historial de TX</option>
                 </select>
             </div>
         </div>
 
-        <!-- LEYENDA RÁPIDA DE SALUD -->
-        <div style="display:flex;gap:16px;flex-wrap:wrap;background:#090f18;padding:10px 16px;border-radius:8px;margin-bottom:14px;border:1px solid #162438;font-size:0.8rem">
-            <span>🟢 datos ≤24 h: <b id="count-recent" style="color:var(--cyber-green)">—</b></span>
-            <span>🟠 contenido inválido: <b id="count-corrupt" style="color:#c2410c">—</b></span>
-            <span>🟡 1–7 días: <b id="count-week" style="color:var(--cyber-yellow)">—</b></span>
-            <span>🔴 >7 días: <b id="count-historical" style="color:var(--cyber-red)">—</b></span>
-            <span>⚪ Sin mediciones: <b id="count-empty" style="color:var(--text-muted)">—</b></span>
-            <span>🔘 Sin verificar: <b id="count-unknown" style="color:var(--text-dim)">—</b></span>
+        <div class="map-viewport">
+            <div id="station-map" aria-label="Mapa de disponibilidad espacial de estaciones, ciclones tropicales y sismos"></div>
+            <button id="reset-map-view" class="map-reset-control" type="button" title="Restablecer extensión del mapa" aria-label="Restablecer extensión y nivel de zoom del mapa">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5" />
+                </svg>
+            </button>
+            <div class="map-layer-switcher">
+                <button id="toggle-map-layers" type="button" aria-expanded="false" aria-controls="map-layer-panel">
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg>
+                    <span>Capas</span><small id="base-layer-name">Cartográfico</small>
+                </button>
+                <div id="map-layer-panel" class="map-layer-panel" hidden>
+                    <strong>Mapa base</strong>
+                    <label><input id="basemap-street" type="radio" name="map-basemap" value="street" checked><span class="layer-swatch street"></span><span>Cartográfico<small>Calles y localidades</small></span></label>
+                    <label><input id="basemap-terrain" type="radio" name="map-basemap" value="terrain"><span class="layer-swatch terrain"></span><span>Relieve<small>Topografía y elevación</small></span></label>
+                    <label><input id="basemap-satellite" type="radio" name="map-basemap" value="satellite"><span class="layer-swatch satellite"></span><span>Satélite<small>Imagen mundial</small></span></label>
+                    <div class="weather-layer-section">
+                        <strong>Meteorología</strong>
+                        <label class="weather-layer-option" title="Imagen GeoColor del satélite GOES-East distribuida por NASA GIBS">
+                            <input id="weather-clouds" type="checkbox">
+                            <span class="weather-swatch clouds" aria-hidden="true"></span>
+                            <span>Nubes GOES<small>NASA · latencia aprox. 40 min</small></span>
+                        </label>
+                        <label class="weather-layer-option" title="Reflectividad compuesta del último cuadro disponible en RainViewer">
+                            <input id="weather-radar" type="checkbox">
+                            <span class="weather-swatch radar" aria-hidden="true"></span>
+                            <span>Radar de lluvia<small>Último cuadro · cada 5 min</small></span>
+                        </label>
+                        <label class="weather-opacity-control" for="weather-opacity">
+                            <span>Opacidad</span>
+                            <input id="weather-opacity" type="range" min="20" max="90" step="5" value="60">
+                            <output id="weather-opacity-value" for="weather-opacity">60%</output>
+                        </label>
+                        <p id="weather-layer-status" role="status" aria-live="polite">Activa una capa para consultar la imagen reciente.</p>
+                        <small class="weather-layer-sources"><a href="https://www.earthdata.nasa.gov/data/tools/worldview" target="_blank" rel="noopener noreferrer">NASA GIBS</a> · <a href="https://www.rainviewer.com/" target="_blank" rel="noopener noreferrer">RainViewer</a></small>
+                    </div>
+                </div>
+            </div>
+            <div id="map-layer-transition" class="map-layer-transition" aria-hidden="true"></div>
+            <fieldset class="hazard-layer-control" aria-label="Capas de fenómenos naturales">
+                <legend>Fenómenos</legend>
+                <label title="Ciclones tropicales activos · fuente NHC/NOAA">
+                    <input id="layer-cyclones" type="checkbox" checked>
+                    <span class="hazard-symbol cyclone" aria-hidden="true">↻</span>
+                    Ciclones <b id="count-cyclones">…</b>
+                </label>
+                <label title="Sismos M3.5+ de los últimos 7 días · fuente USGS">
+                    <input id="layer-earthquakes" type="checkbox" checked>
+                    <span class="hazard-symbol earthquake" aria-hidden="true"></span>
+                    Sismos <b id="count-earthquakes">…</b>
+                </label>
+                <small id="hazard-status" role="status" aria-live="polite">Actualizando fuentes oficiales…</small>
+            </fieldset>
+            <button id="open-query-dialog" class="query-map-launcher" type="button">
+                <span aria-hidden="true">⌕</span> Consultar estación
+            </button>
         </div>
 
-        <div id="station-map" aria-label="Mapa de disponibilidad espacial de estaciones"></div>
-
-        <div style="margin-top:10px;display:flex;justify-content:space-between;font-size:0.78rem;color:var(--text-muted)">
-            <span id="map-status" role="status">Cargando mapa interactivo...</span>
-            <span id="signal-status" role="status">Verificando señal GOES...</span>
+        <div class="map-statusbar">
+            <span id="map-status" role="status" aria-live="polite" data-state="loading">Conectando con DB_ATLAS…</span>
+            <span id="signal-status" role="status">Calculando semáforo de TX…</span>
         </div>
     </section>
 
+    <dialog id="query-dialog" class="query-dialog" aria-labelledby="query-dialog-title">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Datos hidrometeorológicos</span>
+                <h2 id="query-dialog-title">Consulta y series temporales</h2>
+            </div>
+            <button id="close-query-dialog" type="button" aria-label="Cerrar consulta">×</button>
+        </header>
+        <div class="query-dialog-body">
     <!-- SECCIÓN 2: FORMULARIO DE CONSULTA & PARÁMETROS -->
-    <section class="cyber-card">
-        <h2 class="cyber-card-title">
-            ⚙️ Parámetros de Consulta &amp; Series Hidrometeorológicas
-        </h2>
-
+    <section class="cyber-card query-parameters-card">
         <form id="query-form">
             <div class="cyber-form-grid">
                 <div class="cyber-field">
@@ -99,87 +137,87 @@
                         <option value="custom">Rango Personalizado (UTC)</option>
                     </select>
                 </div>
-                <div class="cyber-field">
+                <div class="cyber-field custom-date-field">
                     <label>Desde (UTC)</label>
                     <input id="query-start" class="cyber-input" type="datetime-local" step="60" required/>
                 </div>
-                <div class="cyber-field">
+                <div class="cyber-field custom-date-field">
                     <label>Hasta (UTC)</label>
                     <input id="query-end" class="cyber-input" type="datetime-local" step="60" required/>
                 </div>
-            </div>
-
-            <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:12px">
-                <button id="query-submit" class="btn-cyber-primary" type="submit">
-                    🔍 Consultar Serie Temporal
-                </button>
-                <button id="query-export" class="btn-cyber-secondary" type="button" disabled>
-                    📥 Descargar CSV
-                </button>
+                <div class="query-actions">
+                    <button id="query-submit" class="btn-cyber-primary" type="submit">
+                        <span aria-hidden="true">⌕</span> Consultar
+                    </button>
+                    <button id="query-export" class="btn-cyber-secondary" type="button" disabled>
+                        Descargar CSV
+                    </button>
+                </div>
             </div>
         </form>
-
-        <p id="query-status" role="status" aria-live="polite" style="margin-top:14px;font-size:0.85rem;color:var(--cyber-cyan)"></p>
+        <div class="query-feedback">
+            <p id="query-status" role="status" aria-live="polite"></p>
+            <details id="query-note" hidden><summary>Notas de los datos</summary><p id="query-note-text"></p></details>
+        </div>
     </section>
 
     <!-- SECCIÓN 3: RESULTADOS, HIDROGRAMA Y TABLA -->
     <div id="query-results" hidden>
-        <!-- TARJETAS KPI DE RESULTADOS -->
-        <div class="kpi-cyber-grid">
-            <div class="kpi-card">
-                <div class="kpi-label">Total Lecturas</div>
-                <div class="kpi-value" id="kpi-total-obs">—</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Valor Mínimo</div>
-                <div class="kpi-value" style="color:var(--cyber-blue)" id="kpi-min-val">—</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Valor Promedio</div>
-                <div class="kpi-value" style="color:var(--text-primary)" id="kpi-avg-val">—</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Valor Máximo</div>
-                <div class="kpi-value" style="color:var(--cyber-purple)" id="kpi-max-val">—</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Acumulado / Suma</div>
-                <div class="kpi-value" style="color:var(--cyber-yellow)" id="kpi-sum-val">—</div>
-            </div>
-        </div>
-
-        <!-- GRÁFICA HIDROGRAMA -->
-        <section class="cyber-card">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-                <h3 style="color:var(--cyber-cyan);margin:0;font-size:1.05rem">
-                    📈 Hidrograma &amp; Análisis temporal de la Estación
-                </h3>
-                <div style="display:flex;gap:14px">
-                    <label style="font-size:0.8rem;color:var(--text-muted)">Serie:
-                        <select id="chart-series" class="cyber-select" style="padding:4px 10px;font-size:0.8rem"></select>
-                    </label>
-                    <label style="font-size:0.8rem;color:var(--text-muted)">Métrica:
-                        <select id="chart-metric" class="cyber-select" style="padding:4px 10px;font-size:0.8rem"></select>
+        <section class="cyber-card chart-workspace">
+            <div class="chart-toolbar">
+                <div>
+                    <span class="chart-eyebrow">Análisis temporal</span>
+                    <h3>Series de la estación</h3>
+                </div>
+                <div class="chart-controls">
+                    <div class="chart-mode" aria-label="Modo de gráfica">
+                        <button id="chart-mode-single" type="button" aria-pressed="true">Individual</button>
+                        <button id="chart-mode-combine" type="button" aria-pressed="false">Combinar</button>
+                    </div>
+                    <label>Métrica
+                        <select id="chart-metric" class="cyber-select"></select>
                     </label>
                 </div>
             </div>
-
-            <div style="background:#080e18;border-radius:8px;padding:16px;border:1px solid #142236">
-                <svg id="series-chart" viewBox="0 0 1000 330" role="img" aria-label="Gráfica temporal de telemetría" style="width:100%;height:auto"></svg>
+            <div id="chart-series-strip" class="chart-series-strip" role="group" aria-label="Series disponibles"></div>
+            <div id="chart-legend" class="chart-legend" aria-live="polite"></div>
+            <div class="chart-canvas">
+                <div id="series-chart" role="region" aria-label="Gráfica temporal interactiva de telemetría"></div>
             </div>
-            <p id="chart-summary" style="margin-top:10px;font-size:0.82rem;color:var(--text-muted)"></p>
+            <div class="chart-bottom-bar">
+                <div class="kpi-compact"><span>Lecturas</span><b id="kpi-total-obs">—</b></div>
+                <div class="kpi-compact"><span>Mínimo</span><b id="kpi-min-val">—</b></div>
+                <div class="kpi-compact"><span>Promedio</span><b id="kpi-avg-val">—</b></div>
+                <div class="kpi-compact"><span>Máximo</span><b id="kpi-max-val">—</b></div>
+                <div class="kpi-compact"><span>Suma</span><b id="kpi-sum-val">—</b></div>
+                <p id="chart-summary"></p>
+            </div>
         </section>
 
-        <!-- TABLA DE DATOS -->
-        <section class="cyber-card">
-            <h3 style="color:var(--cyber-cyan);margin-top:0;margin-bottom:14px;font-size:1.05rem">
-                📋 Registro Detallado de Observaciones
-            </h3>
-            <div id="result-table" style="max-height:450px;overflow-y:auto;border-radius:8px"></div>
+        <section id="goes-messages-panel" class="cyber-card goes-messages-panel" hidden>
+            <div class="goes-messages-header">
+                <div>
+                    <span class="chart-eyebrow">Telemetría Satelital DOMSAT / LRGS</span>
+                    <h3>Mensajes GOES recibidos por estación</h3>
+                </div>
+                <div id="goes-messages-summary" class="goes-messages-summary"></div>
+            </div>
+            <div id="goes-messages-list" class="goes-messages-list" role="region" aria-label="Bitácora de tramas GOES crudas y diagnóstico de señal"></div>
         </section>
+
+        <details class="cyber-card result-table-panel">
+            <summary><span>Registro detallado</span><small>Mostrar las filas consultadas</small></summary>
+            <div id="result-table"></div>
+        </details>
     </div>
+        </div>
+      </div>
+    </dialog>
 
 </div>
 
 <script src="~/vendor/leaflet/leaflet.js" defer></script>
+<script src="~/vendor/animejs/anime-4.5.0.umd.min.js" defer></script>
+<script src="~/vendor/highstock-13.1.1.js" defer></script>
+<script src="~/vendor/highstock-accessibility-13.1.1.js" defer></script>
 <script src="~/explore.js" asp-append-version="true" defer></script>
