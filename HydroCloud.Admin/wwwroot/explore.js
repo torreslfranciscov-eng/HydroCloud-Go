@@ -10,7 +10,7 @@
     setTimeout(()=>{if(station.value)runQuery(null,false);},0);
   }
   function closeQueryDialog(){if(typeof queryDialog.close==='function')queryDialog.close();else queryDialog.removeAttribute('open');}
-  $('open-query-dialog').addEventListener('click',openQueryDialog);
+  $('open-query-dialog').addEventListener('click',()=>{if(typeof setGoesView==='function')setGoesView(false);openQueryDialog();});
   $('close-query-dialog').addEventListener('click',closeQueryDialog);
   queryDialog.addEventListener('click',event=>{if(event.target===queryDialog)closeQueryDialog();});
   const now=new Date();end.value=now.toISOString().slice(0,16);start.value=new Date(now.getTime()-7*86400000+60000).toISOString().slice(0,16);
@@ -558,7 +558,7 @@
   function renderGoesMessages(){
     const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary'),dailyStrip=$('goes-daily-strip'),chartCard=$('chart-workspace-card');
     if(!panel||!list||!summary)return;
-    const isGoes=result&&(goesViewActive||['transmisiones','eficiencia','recepcion'].includes(result.product)||result.columns.includes('RAW_MESSAGE'));
+    const isGoes=Boolean(result&&goesViewActive);
     panel.hidden=!isGoes;
     if(chartCard)chartCard.hidden=Boolean(isGoes&&result.product==='transmisiones');
     if(!isGoes){list.replaceChildren();summary.replaceChildren();if(dailyStrip)dailyStrip.replaceChildren();return;}
