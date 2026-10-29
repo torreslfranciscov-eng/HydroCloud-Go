@@ -4,13 +4,15 @@
   const start=$('query-start'),end=$('query-end'),station=$('query-station'),status=$('query-status');
   const queryDialog=$('query-dialog');
   function openQueryDialog(){
+    if(typeof setGoesView==='function')setGoesView(false);
+    if($('query-product')&&!$('query-product').value)$('query-product').value='variables';
     if(typeof queryDialog.showModal==='function'){if(!queryDialog.open)queryDialog.showModal();}
     else queryDialog.setAttribute('open','');
     if(typeof station.focus==='function')setTimeout(()=>station.focus(),0);
     setTimeout(()=>{if(station.value)runQuery(null,false);},0);
   }
   function closeQueryDialog(){if(typeof queryDialog.close==='function')queryDialog.close();else queryDialog.removeAttribute('open');}
-  $('open-query-dialog').addEventListener('click',()=>{if(typeof setGoesView==='function')setGoesView(false);openQueryDialog();});
+  $('open-query-dialog').addEventListener('click',openQueryDialog);
   $('close-query-dialog').addEventListener('click',closeQueryDialog);
   queryDialog.addEventListener('click',event=>{if(event.target===queryDialog)closeQueryDialog();});
   const now=new Date();end.value=now.toISOString().slice(0,16);start.value=new Date(now.getTime()-7*86400000+60000).toISOString().slice(0,16);
@@ -253,10 +255,8 @@
       const channels=document.createElement('div');channels.className='station-popup-channels';for(const [label,active] of [['GOES',s.goes],['GPRS',s.gprs],['Radio',s.radio]]){const chip=document.createElement('span');chip.className=active?'available':'unavailable';chip.textContent=label;channels.append(chip);}box.append(channels);
       const level=latestLevels.get(stationKey(s.id));if(level?.value!==null&&level?.value!==undefined){const reading=document.createElement('div'),readingLabel=document.createElement('span'),readingValue=document.createElement('strong');reading.className='station-popup-reading';readingLabel.textContent=level.sensorType||'Última lectura';readingValue.textContent=Number(level.value).toLocaleString('es-MX',{maximumFractionDigits:3})+' '+(level.unit||'');reading.append(readingLabel,readingValue);box.append(reading);}
       const note=document.createElement('p');note.className='station-popup-note';note.textContent=signalLabels[state];box.append(note);
-      const actions=document.createElement('div');actions.className='station-popup-actions';
-      const button=document.createElement('button');button.className='station-popup-action';button.textContent='Ver series y detalle';button.type='button';button.addEventListener('click',()=>{station.value=s.id;setGoesView(false);map.closePopup();openQueryDialog();});
-      const goesButton=document.createElement('button');goesButton.className='station-popup-action station-popup-action-secondary';goesButton.textContent='📡 Mensajes GOES';goesButton.type='button';goesButton.addEventListener('click',()=>{station.value=s.id;setGoesView(true,'transmisiones');map.closePopup();openQueryDialog();runQuery(null,true);});
-      actions.append(button,goesButton);box.append(actions);
+      const button=document.createElement('button');button.className='station-popup-action';button.textContent='Consultar esta estación';button.type='button';button.addEventListener('click',()=>{station.value=s.id;setGoesView(false);map.closePopup();openQueryDialog();});
+      box.append(button);
       const tooltip=document.createElement('div'),tooltipHeader=document.createElement('div'),tooltipTitle=document.createElement('strong'),tooltipBadge=document.createElement('span');
       tooltip.className='station-tooltip';tooltipHeader.className='station-tooltip-header';tooltipTitle.className='station-tooltip-title';tooltipTitle.textContent=s.name;
       tooltipBadge.className='station-tooltip-badge';tooltipBadge.textContent=isDam?'PRESA':'ESTACIÓN';tooltipHeader.append(tooltipTitle,tooltipBadge);
