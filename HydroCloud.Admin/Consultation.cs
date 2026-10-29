@@ -45,8 +45,8 @@ public record UpstreamMetric(string SensorType,string Unit,double? Value,DateTim
 public record UpstreamCondition(string DamStationId,string StationId,UpstreamMetric? Level,double? Rain1Hour,double? Rain6Hours,string RainUnit,DateTimeOffset? RainTimestamp,UpstreamMetric? Flow,UpstreamMetric? WaterVelocity);
 public record LevelPoint(DateTimeOffset Timestamp,double Value);
 public record LatestLevel(string StationId,bool SensorConfigured,string? SensorId,string? SensorType,string? Unit,double? Value,DateTimeOffset? Timestamp,bool? Valid,double? PreviousValue,DateTimeOffset? PreviousTimestamp,bool? PreviousValid,List<LevelPoint> History);
-public record QuerySeries(string SensorId,string Name,string Unit,string ConfiguredChartType);
-public record GoesScheduleInfo(string DcpId,string FirstTransmission,string Interval,string Window,int? Channel,string Satellite,string Decoder,int ExpectedPerDay);
+public record QuerySeries(string SensorId,string Name,string Unit,string ConfiguredChartType,int Decimals=0,double PeriodMinutes=10,int Order=999,bool IsCalculated=false,double? MinValue=null,double? MaxValue=null);
+public record GoesScheduleInfo(string DcpId,string FirstTransmission,string Interval,string Window,int? Channel,string Satellite,string Decoder,int ExpectedPerDay,int RangeMinutes=60);
 public record QueryData(string Product,QueryWindow Window,List<string> Columns,List<Dictionary<string,object?>> Rows,List<QuerySeries> Series,bool Truncated,string Note,GoesScheduleInfo? GoesSchedule=null);
 public interface IConsultationRepository
 {
@@ -280,7 +280,7 @@ JOIN LATERAL (
         var code=await station.ExecuteScalarAsync(ct);
         if(code is null || code is DBNull) throw new ArgumentException("La estación no está disponible para consulta.");
         var series=new List<QuerySeries>();
-        await using(var sensorCommand=new NpgsqlCommand(@"SELECT TRIM(s.NumeroSensor),COALESCE(ts.Nombre,'Sensor'),COALESCE(u.Abreviatura,u.Nombre,''),COALESCE(s.TipoGrafica,'line')
+        await using(var sensorCommand=new NpgsqlCommand(@"SELECT TRIM(s.NumeroSensor),COALESCE(ts.Nombre,'Sensor'),COALESCE(u.Abreviatura,u.Nombre,''),COALESCE(s.TipoGrafica,'line'),COALESCE(s.PuntoDecimal,0),COALESCE(s.PeriodoMuestra,10),COALESCE(s.Orden,999),COALESCE(ts.EsCalculada,false),s.ValorMinimo,s.ValorMaximo
 FROM dbo.Sensor s
 JOIN dbo.TipoSensor ts ON ts.Id=s.IdTipoSensor
 LEFT JOIN dbo.UnidadMedida u ON u.Id=s.IdUnidadMedida
@@ -289,11 +289,20 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
         {
             sensorCommand.Parameters.AddWithValue("id",NpgsqlDbType.Text,stationIdText);
             await using var sensorReader=await sensorCommand.ExecuteReaderAsync(ct);
-            while(await sensorReader.ReadAsync(ct))series.Add(new(sensorReader.GetString(0),sensorReader.GetString(1),sensorReader.GetString(2),sensorReader.GetString(3)));
+            while(await sensorReader.ReadAsync(ct))
+            {
+                int dec=sensorReader.IsDBNull(4)?0:Convert.ToInt32(sensorReader.GetValue(4),CultureInfo.InvariantCulture);
+                double per=sensorReader.IsDBNull(5)?10:Convert.ToDouble(sensorReader.GetValue(5),CultureInfo.InvariantCulture);
+                int ord=sensorReader.IsDBNull(6)?999:Convert.ToInt32(sensorReader.GetValue(6),CultureInfo.InvariantCulture);
+                bool calc=!sensorReader.IsDBNull(7)&&Convert.ToBoolean(sensorReader.GetValue(7),CultureInfo.InvariantCulture);
+                double? minV=sensorReader.IsDBNull(8)?null:Convert.ToDouble(sensorReader.GetValue(8),CultureInfo.InvariantCulture);
+                double? maxV=sensorReader.IsDBNull(9)?null:Convert.ToDouble(sensorReader.GetValue(9),CultureInfo.InvariantCulture);
+                series.Add(new(sensorReader.GetString(0),sensorReader.GetString(1),sensorReader.GetString(2),sensorReader.GetString(3),dec,per,ord,calc,minV,maxV));
+            }
         }
         var keys=new List<string>();
         GoesScheduleInfo? goesSchedule=null;
-        await using(var dcps=new NpgsqlCommand("SELECT TRIM(IdSatelital),COALESCE(PrimeraTransmision,'00:00:00'),COALESCE(IntervaloTransmision,'01:00:00'),COALESCE(VentanaTransmision,'00:00:10'),CanalPrimario,COALESCE(Satelite,'GOES-E'),COALESCE(Decodificador,'') FROM dbo.DatosGOES WHERE UPPER(IdEstacion)=@id AND IdSatelital IS NOT NULL",c){CommandTimeout=15})
+        await using(var dcps=new NpgsqlCommand("SELECT TRIM(IdSatelital),COALESCE(PrimeraTransmision,'00:00:00'),COALESCE(IntervaloTransmision,'01:00:00'),COALESCE(VentanaTransmision,'00:00:10'),CanalPrimario,COALESCE(Satelite,'GOES-E'),COALESCE(Decodificador,''),COALESCE(RangoTransmision,'01:00:00') FROM dbo.DatosGOES WHERE UPPER(IdEstacion)=@id AND IdSatelital IS NOT NULL",c){CommandTimeout=15})
         {
             dcps.Parameters.AddWithValue("id",NpgsqlDbType.Text,stationIdText);
             await using var dr=await dcps.ExecuteReaderAsync(ct);
@@ -309,10 +318,13 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
                     int? chan=dr.IsDBNull(4)?null:Convert.ToInt32(dr.GetValue(4),CultureInfo.InvariantCulture);
                     var sat=dr.GetString(5).Trim();
                     var dec=dr.GetString(6).Trim();
-                    int expectedDay=24;
+                    var rango=dr.GetString(7).Trim();
+                    int expectedDay=24,rangeMin=60;
                     if(TimeSpan.TryParse(interval,CultureInfo.InvariantCulture,out var tsInt) && tsInt.TotalMinutes>=1)
                         expectedDay=Math.Max(1,(int)Math.Round(1440.0/tsInt.TotalMinutes));
-                    goesSchedule=new(dcp,firstTx,interval,win,chan,string.IsNullOrEmpty(sat)?"GOES-E":sat,dec,expectedDay);
+                    if(TimeSpan.TryParse(rango,CultureInfo.InvariantCulture,out var tsRng) && tsRng.TotalMinutes>=1)
+                        rangeMin=Math.Max(1,(int)Math.Round(tsRng.TotalMinutes));
+                    goesSchedule=new(dcp,firstTx,interval,win,chan,string.IsNullOrEmpty(sat)?"GOES-E":sat,dec,expectedDay,rangeMin);
                 }
             }
         }

@@ -555,6 +555,231 @@
   function formatUtcSlot(ms){
     return new Date(ms).toISOString().replace('T',' ').slice(0,19)+' UTC';
   }
+  function parseDomsatHeader37(hdr){
+    if(!hdr||hdr.length<37)return null;
+    const dcp=hdr.slice(0,8).trim(),tstr=hdr.slice(8,19);
+    let tsIso=tstr;
+    const yy=Number(tstr.slice(0,2)),ddd=Number(tstr.slice(2,5)),hh=Number(tstr.slice(5,7)),mm=Number(tstr.slice(7,9)),ss=Number(tstr.slice(9,11));
+    if([yy,ddd,hh,mm,ss].every(Number.isFinite)&&ddd>=1&&ddd<=366){
+      const dt=new Date(Date.UTC(2000+yy,0,1,hh,mm,ss)+(ddd-1)*86400000);
+      tsIso=dt.toISOString().replace('T',' ').slice(0,19)+' UTC';
+    }
+    return {
+      dcp,tstr,tsIso,
+      failCode:hdr.slice(19,20),
+      signalDb:hdr.slice(20,22).trim(),
+      freqOffset:hdr.slice(22,24).trim(),
+      modIndex:hdr.slice(24,25),
+      dataQuality:hdr.slice(25,26),
+      channel:hdr.slice(26,29).trim(),
+      spacecraft:hdr.slice(29,30),
+      uplink:hdr.slice(30,32),
+      msgLen:hdr.slice(32,37).trim()
+    };
+  }
+  function decodeGs300Words(payloadStr){
+    const clean=String(payloadStr||'').replace(/^[\r\n\s]+|[\r\n\s]+$/g,'');
+    if(!clean)return {prefix:'',words:[],note:'Payload vacío'};
+    let prefix='',body=clean;
+    if(clean.length>=4&&clean.slice(1,3)==='B1'&&[34,96,98].includes(clean.charCodeAt(0))){
+      prefix=clean.slice(0,4);body=clean.slice(4);
+    }else if(clean.length>1&&[96,98].includes(clean.charCodeAt(0))&&(clean.length-1)%3===0){
+      prefix=clean.slice(0,1);body=clean.slice(1);
+    }
+    const words=[];
+    for(let i=0;i+2<body.length;i+=3){
+      const trip=body.slice(i,i+3);
+      if(trip==='///'){words.push({triplet:trip,raw:null});continue;}
+      const c0=trip.charCodeAt(0),c1=trip.charCodeAt(1),c2=trip.charCodeAt(2);
+      if([c0,c1,c2].some(c=>c<63||c>126)){words.push({triplet:trip,raw:null,invalid:true});continue;}
+      let v=((c0<64?c0:c0-64)<<12)|((c1<64?c1:c1-64)<<6)|(c2<64?c2:c2-64);
+      if(v&(1<<17))v-=(1<<18);
+      words.push({triplet:trip,raw:v});
+    }
+    return {prefix,words,remainder:body.slice(words.length*3)};
+  }
+  function decodeOttBinaryBlocks(payloadStr){
+    const clean=String(payloadStr||'').replace(/[\r\n\s]+$/g,'');
+    if(clean.length<=5||clean.slice(1,4)!=='OTA'||clean[4]!=='@')return {error:'Prefijo OTT (OTA@) no detectado en el cuerpo',blocks:[]};
+    const body=clean.slice(5);
+    let bits='';
+    for(let i=0;i<body.length;i++){
+      const code=body.charCodeAt(i);
+      const val=code<64?code:code-64;
+      bits=val.toString(2).padStart(6,'0')+bits;
+    }
+    const bytes=[];
+    while(bits.length>0){
+      const take=bits.length>=8?8:bits.length;
+      bytes.push(parseInt(bits.slice(bits.length-take),2));
+      bits=bits.slice(0,bits.length-take);
+    }
+    if(bytes.length<8)return {error:'Trama OTT incompleta (<8 bytes)',blocks:[]};
+    const u8=new Uint8Array(bytes),dv=new DataView(u8.buffer);
+    const epoch2000=Date.UTC(2000,0,1,0,0,0);
+    const stampMs=epoch2000+(dv.getInt32(0,true)*1000);
+    const blocks=[];let pos=4;
+    while(pos<bytes.length){
+      if(bytes.length-pos<=2)break;
+      if(bytes[pos]===0x20&&(bytes[pos+1]||0)===0x00)break;
+      if(bytes.length-pos<4)break;
+      const interval=dv.getInt16(pos,true),count=dv.getInt16(pos+2,true);pos+=4;
+      const width=interval===0?6:2;
+      if(interval<0||interval>1000||count<=0||count>1000||pos+width*count>bytes.length)break;
+      const values=[];
+      for(let i=0;i<count;i++){
+        values.push(dv.getInt16(pos,true));
+        pos+=width;
+      }
+      blocks.push({interval,count,values});
+    }
+    return {stampIso:new Date(stampMs).toISOString().replace('T',' ').slice(0,19)+' UTC',blocks,byteCount:bytes.length};
+  }
+  function buildDecodedGoesPanel(raw,sched,sensors){
+    const wrap=document.createElement('section');wrap.className='goes-decode-panel';
+    const decName=String(sched?.decoder||'GS300').trim()||'GS300';
+    const rangeMin=Number(sched?.rangeMinutes)||60;
+    const domsat=parseDomsatHeader37(raw);
+    const payload=raw.length>37?raw.slice(37).replace(/^\r?\n/,''):'';
+
+    // 1. Header summary bar
+    if(domsat){
+      const hdrBox=document.createElement('div');hdrBox.className='goes-decode-hdr-grid';
+      const items=[
+        ['Decodificador BD',decName],
+        ['DCP (0..8)',domsat.dcp],
+        ['Hora Satélite (8..19)',domsat.tstr+' → '+domsat.tsIso],
+        ['Falla / Calidad (19,25)',domsat.failCode+' / '+domsat.dataQuality],
+        ['Potencia / Frec (20..24)',domsat.signalDb+' dB / '+domsat.freqOffset],
+        ['Canal / Sat / Uplink',domsat.channel+' · '+domsat.spacecraft+' · '+domsat.uplink],
+        ['Longitud Payload',domsat.msgLen+' B ('+payload.length+' chars)']
+      ];
+      for(const [k,v] of items){
+        const cell=document.createElement('div'),sp=document.createElement('span'),st=document.createElement('strong');
+        cell.className='goes-decode-hdr-cell';sp.textContent=k;st.textContent=v;cell.append(sp,st);hdrBox.append(cell);
+      }
+      wrap.append(hdrBox);
+    }
+
+    // Active physical sensors ordered by catalog Order
+    const activeSensors=[...(sensors||[])].filter(s=>!s.isCalculated).sort((a,b)=>(Number(a.order??999)-Number(b.order??999))||String(a.sensorId).localeCompare(String(b.sensorId)));
+
+    const tbl=document.createElement('table');tbl.className='goes-decode-table';
+    const thead=document.createElement('thead'),htr=document.createElement('tr');
+    for(const col of ['Orden · Sensor (Catálogo)','Parámetros','Muestras Crudas en Trama','Valores Decodificados (Ingeniería)','Último Valor']){
+      const th=document.createElement('th');th.textContent=col;htr.append(th);
+    }
+    thead.append(htr);tbl.append(thead);
+    const tbody=document.createElement('tbody');
+
+    if(decName==='GS300'){
+      const gs=decodeGs300Words(payload);
+      let cursor=0;
+      for(const s of activeSensors){
+        const period=Math.max(1,Number(s.periodMinutes)||10);
+        const count=Math.max(1,Math.round(rangeMin/period));
+        const dec=Math.max(0,Number(s.decimals)||0);
+        const scale=Math.pow(10,dec);
+        const slice=gs.words.slice(cursor,cursor+count);
+        cursor+=count;
+        const tr=document.createElement('tr');
+        const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td'),td4=document.createElement('td'),td5=document.createElement('td');
+        td1.innerHTML='<b>#'+(s.order??'—')+' · '+s.sensorId+'</b> · '+s.name+(s.unit?' ('+s.unit+')':'');
+        td2.textContent='c/'+period+'m · '+dec+' dec · '+count+' muestras';
+        if(slice.length){
+          td3.textContent=slice.map(w=>w.triplet+'='+(w.raw===null?'///':w.raw)).join('  ');
+          const scaled=slice.map(w=>w.raw===null?'Faltante':(w.raw/scale).toFixed(dec));
+          td4.textContent=scaled.join(' , ')+(s.unit?' '+s.unit:'');
+          const lastVal=slice[slice.length-1];
+          td5.innerHTML=lastVal&&lastVal.raw!==null?'<strong>'+(lastVal.raw/scale).toFixed(dec)+(s.unit?' '+s.unit:'')+'</strong>':'—';
+        }else{
+          td3.textContent='(Sin palabras en posición '+cursor+')';td4.textContent='—';td5.textContent='—';
+        }
+        tr.append(td1,td2,td3,td4,td5);tbody.append(tr);
+      }
+      if(cursor<gs.words.length){
+        const extra=gs.words.slice(cursor);
+        const nonZero=extra.filter(w=>w.raw!==0);
+        const tr=document.createElement('tr');tr.className='goes-decode-extra-row';
+        const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td'),td4=document.createElement('td'),td5=document.createElement('td');
+        td1.innerHTML='<b>Palabras adicionales / Relleno</b>';
+        td2.textContent=extra.length+' palabras tras catálogo (prefijo '+(gs.prefix||'ninguno')+')';
+        td3.textContent=extra.slice(0,18).map(w=>w.triplet+'='+(w.raw===null?'///':w.raw)).join('  ')+(extra.length>18?' … (+'+(extra.length-18)+' más)':'');
+        td4.textContent=nonZero.length?nonZero.map(w=>w.raw).join(', '):'Relleno @ (todos 0)';
+        td5.textContent=extra.length+' words';
+        tr.append(td1,td2,td3,td4,td5);tbody.append(tr);
+      }
+    }else if(decName==='OTTBinario'){
+      const ott=decodeOttBinaryBlocks(payload);
+      if(ott.error){
+        const tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=5;td.textContent=ott.error;tr.append(td);tbody.append(tr);
+      }else{
+        const maxLen=Math.max(ott.blocks.length,activeSensors.length);
+        for(let i=0;i<maxLen;i++){
+          const blk=ott.blocks[i],s=activeSensors[i];
+          const dec=s?Math.max(0,Number(s.decimals)||0):0,scale=Math.pow(10,dec);
+          const tr=document.createElement('tr');
+          const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td'),td4=document.createElement('td'),td5=document.createElement('td');
+          td1.innerHTML=s?'<b>#'+(s.order??(i+1))+' · '+s.sensorId+'</b> · '+s.name+(s.unit?' ('+s.unit+')':''):'<b>Bloque OTT #'+(i+1)+' (Sin sensor)</b>';
+          td2.textContent=blk?'c/'+blk.interval+'m · '+blk.count+' muestras · '+dec+' dec':'Sin bloque en trama';
+          td3.textContent=blk?blk.values.join(', '):'—';
+          const scaled=blk?blk.values.map(v=>v<-32700?'FLAG('+v+')':(v/scale).toFixed(dec)):[];
+          td4.textContent=scaled.length?scaled.join(' , ')+(s?.unit?' '+s.unit:''):'—';
+          td5.innerHTML=scaled.length?'<strong>'+scaled[scaled.length-1]+(s?.unit?' '+s.unit:'')+'</strong>':'—';
+          tr.append(td1,td2,td3,td4,td5);tbody.append(tr);
+        }
+      }
+    }else if(decName==='GS'||decName==='CILA_Text'){
+      const clean=payload.trim();
+      const chunks=decName==='CILA_Text'?clean.split(':'):clean.split(/[\r\n]+/);
+      for(const ch of chunks){
+        const parts=ch.trim().split(/\s+/).filter(Boolean);
+        if(!parts.length||parts[0].toUpperCase()==='NAME')continue;
+        const code=parts[0].toUpperCase(),sensorCode=code.padStart(4,'0');
+        const s=(sensors||[]).find(x=>x.sensorId===sensorCode||x.sensorId===code);
+        const vals=decName==='CILA_Text'&&parts[2]?.startsWith('#')?parts.slice(3):parts.slice(2);
+        const intervalTxt=decName==='CILA_Text'&&parts[2]?.startsWith('#')?'offset '+parts[1]+'m · c/'+parts[2].slice(1)+'m':'c/'+(parts[1]||'?')+'m';
+        const tr=document.createElement('tr');
+        const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td'),td4=document.createElement('td'),td5=document.createElement('td');
+        td1.innerHTML='<b>Canal '+code+' ('+sensorCode+')</b>'+(s?' · '+s.name+(s.unit?' ('+s.unit+')':''):' · (No mapeado)');
+        td2.textContent=intervalTxt+' · '+vals.length+' muestras';
+        td3.textContent=ch.trim();
+        td4.textContent=vals.join(' , ')+(s?.unit?' '+s.unit:'');
+        td5.innerHTML=vals.length?'<strong>'+vals[0]+(s?.unit?' '+s.unit:'')+'</strong>':'—';
+        tr.append(td1,td2,td3,td4,td5);tbody.append(tr);
+      }
+    }else{
+      // SMN, SMN_ver2, VAISALA_Protocol_Text, o texto tabular por renglones
+      const lines=payload.split(/[\r\n\x00\x04]+/).map(l=>l.trim().replace(/^"+|"+$/g,'')).filter(Boolean);
+      lines.forEach((line,idx)=>{
+        const tr=document.createElement('tr');
+        const td1=document.createElement('td'),td2=document.createElement('td'),td3=document.createElement('td'),td4=document.createElement('td'),td5=document.createElement('td');
+        let tableId='default',stampTxt='Línea '+(idx+1),tokens=[];
+        const mTab=line.match(/^(02|04|2|4)\s*(\d{8,12}),(.*)$/);
+        const mClk=line.match(/^(?:(\d{1,2})\s+)?(\d{4}-\d{2}-\d{2}\s+)?(\d{2}:\d{2}:\d{2})\s+(.+)$/);
+        if(mTab){
+          tableId=String(Number(mTab[1]));stampTxt='Tabla '+tableId+' · '+mTab[2];tokens=mTab[3].split(',').map(x=>x.trim());
+        }else if(mClk){
+          tableId=mClk[1]||'default';stampTxt=(mClk[2]||'')+mClk[3];tokens=mClk[4].includes(',')?mClk[4].split(',').map(x=>x.trim()):mClk[4].trim().split(/\s+/);
+        }else{
+          tokens=line.includes(',')?line.split(',').map(x=>x.trim()):line.split(/\s+/);
+        }
+        const periodMatch=tableId==='2'?10:tableId==='4'?60:null;
+        const tblSensors=periodMatch?activeSensors.filter(s=>Number(s.periodMinutes)===periodMatch):activeSensors;
+        td1.innerHTML='<b>Registro #'+(idx+1)+'</b> · '+stampTxt;
+        td2.textContent=decName+' · '+tokens.length+' columnas';
+        td3.textContent=line;
+        td4.textContent=tokens.map((v,colIdx)=>{
+          const s=tblSensors[colIdx];
+          return (s?s.sensorId+' '+s.name+': ':'C'+(colIdx+1)+': ')+v+(s?.unit?' '+s.unit:'');
+        }).join(' | ');
+        td5.innerHTML=tokens.length?'<strong>'+tokens[tokens.length-1]+'</strong>':'—';
+        tr.append(td1,td2,td3,td4,td5);tbody.append(tr);
+      });
+    }
+    tbl.append(tbody);wrap.append(tbl);
+    return wrap;
+  }
   function renderGoesMessages(){
     const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary'),dailyStrip=$('goes-daily-strip'),chartCard=$('chart-workspace-card');
     if(!panel||!list||!summary)return;
@@ -725,6 +950,26 @@
         chanPill.textContent='DCP '+(row.DCP_ID||dcpCode)+' · CH '+(row.CHANNEL??'—')+' · Sat '+(row.SPACECRAFT??'—')+' · Frec '+(row.FREQUENCY_OFFSET??'—');
         badges.append(sigPill,qualPill,chanPill);
         const raw=row.RAW_MESSAGE?String(row.RAW_MESSAGE):'';
+        let decodeContainer=null;
+        if(raw){
+          const decBtn=document.createElement('button');decBtn.type='button';decBtn.className='goes-decode-btn';
+          const decLabel=sched.decoder||'GS300';
+          decBtn.textContent='⚙️ Decodificar ('+decLabel+')';
+          decBtn.addEventListener('click',()=>{
+            if(!decodeContainer){
+              decodeContainer=buildDecodedGoesPanel(raw,sched,result.series||[]);
+              card.append(decodeContainer);
+              decBtn.setAttribute('aria-expanded','true');
+              decBtn.textContent='▴ Ocultar decodificación ('+decLabel+')';
+            }else{
+              const hidden=decodeContainer.hidden;
+              decodeContainer.hidden=!hidden;
+              decBtn.setAttribute('aria-expanded',String(hidden));
+              decBtn.textContent=hidden?'▴ Ocultar decodificación ('+decLabel+')':'⚙️ Decodificar ('+decLabel+')';
+            }
+          });
+          badges.append(decBtn);
+        }
         if(raw&&typeof navigator!=='undefined'&&navigator.clipboard){
           const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.className='goes-copy-btn';copyBtn.textContent='Copiar trama';
           copyBtn.addEventListener('click',()=>{navigator.clipboard.writeText(raw);copyBtn.textContent='¡Copiado!';setTimeout(()=>{copyBtn.textContent='Copiar trama';},1500);});
