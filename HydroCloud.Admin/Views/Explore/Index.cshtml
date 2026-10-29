@@ -163,6 +163,18 @@
 
     <!-- SECCIÓN 3: RESULTADOS, HIDROGRAMA Y TABLA -->
     <div id="query-results" hidden>
+        <section id="goes-messages-panel" class="cyber-card goes-messages-panel" hidden>
+            <div class="goes-messages-header">
+                <div>
+                    <span class="chart-eyebrow">Telemetría Satelital DOMSAT / LRGS · Control de Recepción</span>
+                    <h3>Transmisiones GOES: Esperadas vs. Recibidas y Tramas Crudas</h3>
+                </div>
+                <div id="goes-messages-summary" class="goes-messages-summary"></div>
+            </div>
+            <div id="goes-daily-strip" class="goes-daily-strip" aria-label="Cumplimiento diario Esperadas vs Recibidas"></div>
+            <div id="goes-messages-list" class="goes-messages-list" role="region" aria-label="Bitácora de ventanas esperadas vs recibidas y tramas GOES crudas"></div>
+        </section>
+
         <section class="cyber-card chart-workspace">
             <div class="chart-toolbar">
                 <div>
@@ -192,17 +204,6 @@
                 <div class="kpi-compact"><span>Suma</span><b id="kpi-sum-val">—</b></div>
                 <p id="chart-summary"></p>
             </div>
-        </section>
-
-        <section id="goes-messages-panel" class="cyber-card goes-messages-panel" hidden>
-            <div class="goes-messages-header">
-                <div>
-                    <span class="chart-eyebrow">Telemetría Satelital DOMSAT / LRGS</span>
-                    <h3>Mensajes GOES recibidos por estación</h3>
-                </div>
-                <div id="goes-messages-summary" class="goes-messages-summary"></div>
-            </div>
-            <div id="goes-messages-list" class="goes-messages-list" role="region" aria-label="Bitácora de tramas GOES crudas y diagnóstico de señal"></div>
         </section>
 
         <details class="cyber-card result-table-panel">

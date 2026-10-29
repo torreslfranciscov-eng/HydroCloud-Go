@@ -526,57 +526,193 @@
   $('query-form').addEventListener('submit',event=>runQuery(event,true));
   $('query-product').addEventListener('change',()=>{if(station.value&&queryDialog.open)runQuery(null,true);});
   station.addEventListener('change',()=>{if(station.value&&queryDialog.open)runQuery(null,true);});
+  function parseHmsSeconds(hms,fallbackSec){
+    const parts=String(hms||'').trim().split(':').map(Number);
+    if(parts.length>=2&&parts.every(Number.isFinite))return (parts[0]*3600)+(parts[1]*60)+(parts[2]||0);
+    return fallbackSec;
+  }
+  function formatUtcSlot(ms){
+    return new Date(ms).toISOString().replace('T',' ').slice(0,19)+' UTC';
+  }
   function renderGoesMessages(){
-    const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary');
+    const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary'),dailyStrip=$('goes-daily-strip');
     if(!panel||!list||!summary)return;
     const isGoes=result&&(result.product==='transmisiones'||result.columns.includes('RAW_MESSAGE'));
     panel.hidden=!isGoes;
-    if(!isGoes){list.replaceChildren();summary.replaceChildren();return;}
-    list.replaceChildren();summary.replaceChildren();
+    if(!isGoes){list.replaceChildren();summary.replaceChildren();if(dailyStrip)dailyStrip.replaceChildren();return;}
+    list.replaceChildren();summary.replaceChildren();if(dailyStrip)dailyStrip.replaceChildren();
     const rows=[...result.rows].reverse();
+    const sched=result.goesSchedule||{};
+    const intervalSec=Math.max(300,parseHmsSeconds(sched.interval||'01:00:00',3600));
+    let firstTxSec=parseHmsSeconds(sched.firstTransmission,null);
+    if(firstTxSec===null){
+      const sampleTs=rows.length?Date.parse(rows[0].TIMESTAMP_MSG||rows[0].TS):NaN;
+      if(Number.isFinite(sampleTs)){
+        const d=new Date(sampleTs);
+        firstTxSec=(d.getUTCHours()*3600+d.getUTCMinutes()*60+d.getUTCSeconds())%intervalSec;
+      }else firstTxSec=0;
+    }else{
+      firstTxSec=firstTxSec%intervalSec;
+    }
+    const mm=String(Math.floor((firstTxSec%3600)/60)).padStart(2,'0'),ss=String(firstTxSec%60).padStart(2,'0');
+    const intervalMin=Math.round(intervalSec/60);
+    const expectedPerDay=sched.expectedPerDay||Math.max(1,Math.round(86400/intervalSec));
+
+    // Build expected slots for the last 48 hours up to window.end (or now)
+    const endMs=Math.min(Date.now(),Date.parse(result.window?.end)||Date.now());
+    const start48Ms=endMs-(48*3600*1000);
+    const dayZeroMs=Math.floor(start48Ms/86400000)*86400000;
+    const parsedRows=rows.map(r=>({row:r,ms:Date.parse(r.TIMESTAMP_MSG||r.TS)})).filter(x=>Number.isFinite(x.ms));
+    const usedRowIdx=new Set();
+    const toleranceMs=Math.min(intervalSec*450,900000); // up to 15 min or 45% of interval
+    const slots=[];
+    for(let t=dayZeroMs+(firstTxSec*1000);t<=endMs+60000;t+=intervalSec*1000){
+      if(t<start48Ms)continue;
+      if(t>endMs)break;
+      let bestIdx=-1,bestDiff=Infinity;
+      for(let i=0;i<parsedRows.length;i++){
+        if(usedRowIdx.has(i))continue;
+        const diff=Math.abs(parsedRows[i].ms-t);
+        if(diff<=toleranceMs&&diff<bestDiff){bestDiff=diff;bestIdx=i;}
+      }
+      if(bestIdx>=0){
+        usedRowIdx.add(bestIdx);
+        slots.push({expectedMs:t,received:parsedRows[bestIdx].row,receivedMs:parsedRows[bestIdx].ms,deltaSec:Math.round((parsedRows[bestIdx].ms-t)/1000)});
+      }else{
+        slots.push({expectedMs:t,received:null,receivedMs:null,deltaSec:null});
+      }
+    }
+    slots.reverse(); // newest expected slot first
+
+    const slots24=slots.filter(s=>s.expectedMs>=endMs-(24*3600*1000));
+    const exp24=slots24.length||expectedPerDay;
+    const rec24=slots24.filter(s=>s.received).length;
+    const pct24=exp24?Math.round((rec24*100)/exp24):0;
+
     const signals=rows.map(r=>Number(r.SIGNAL_STRENGTH)).filter(v=>Number.isFinite(v));
     const avgSig=signals.length?(signals.reduce((a,b)=>a+b,0)/signals.length).toFixed(1)+' dB':'—';
     const goodCount=rows.filter(r=>r.FAILURE_CODE==='G'||r.DATA_QUALITY==='N').length;
     const lastRow=rows[0]||{};
-    for(const [k,v] of [['Tramas recibidas',rows.length.toLocaleString()],['Señal prom.',avgSig],['Calidad OK',rows.length?Math.round(goodCount*100/rows.length)+'%':'—'],['Canal / Sat.',(lastRow.CHANNEL??'—')+' · '+(lastRow.SPACECRAFT??'—')]]){
+    const dcpCode=sched.dcpId||lastRow.DCP_ID||'—';
+    const chanSat=(sched.channel??lastRow.CHANNEL??'—')+' · '+(sched.satellite||lastRow.SPACECRAFT||'GOES-E')+(sched.decoder?' · '+sched.decoder:'');
+
+    const kpis=[
+      ['DCP / Horario TX',dcpCode+' · min :'+mm+':'+ss+' (c/'+intervalMin+'m)'],
+      ['Últimas 24 h (Rec / Esp)',rec24+' / '+exp24+' ('+pct24+'%)'],
+      ['Total periodo (7d)',rows.length+' recibidas'],
+      ['Señal prom.',avgSig],
+      ['Calidad OK',rows.length?Math.round(goodCount*100/rows.length)+'%':'—'],
+      ['Canal / Sat / Decod.',chanSat]
+    ];
+    for(const [k,v] of kpis){
       const chip=document.createElement('div'),lbl=document.createElement('span'),val=document.createElement('strong');
       chip.className='goes-summary-chip';lbl.textContent=k;val.textContent=String(v);chip.append(lbl,val);summary.append(chip);
     }
-    if(!rows.length){
+
+    // Daily Expected vs Received strip across the query window
+    if(dailyStrip){
+      const byDay=new Map();
+      for(const item of parsedRows){
+        const dayKey=new Date(item.ms).toISOString().slice(0,10);
+        byDay.set(dayKey,(byDay.get(dayKey)||0)+1);
+      }
+      const winStartMs=Date.parse(result.window?.start)||(endMs-7*86400000);
+      const dayCards=[];
+      for(let dMs=Math.floor(endMs/86400000)*86400000;dMs>=Math.floor(winStartMs/86400000)*86400000;dMs-=86400000){
+        const dayKey=new Date(dMs).toISOString().slice(0,10);
+        const isToday=dayKey===new Date(endMs).toISOString().slice(0,10);
+        let expDay=expectedPerDay;
+        if(isToday){
+          let countToday=0;
+          for(let s=dMs+(firstTxSec*1000);s<=endMs;s+=intervalSec*1000)if(s>=dMs)countToday++;
+          expDay=Math.max(1,countToday);
+        }
+        const recDay=byDay.get(dayKey)||0;
+        const pct=Math.min(100,Math.round((recDay*100)/expDay));
+        dayCards.push({dayKey,isToday,recDay,expDay,pct});
+      }
+      for(const d of dayCards.slice(0,8)){
+        const box=document.createElement('div'),top=document.createElement('div'),dayLbl=document.createElement('span'),pctBadge=document.createElement('strong'),nums=document.createElement('div'),barWrap=document.createElement('div'),barFill=document.createElement('div');
+        const stateCls=d.pct>=85?'goes-day-ok':d.pct>=50?'goes-day-warn':'goes-day-miss';
+        box.className='goes-day-card '+stateCls;
+        top.className='goes-day-top';
+        dayLbl.textContent=d.isToday?d.dayKey+' (Hoy UTC)':d.dayKey;
+        pctBadge.textContent=d.pct+'%';
+        top.append(dayLbl,pctBadge);
+        nums.className='goes-day-nums';
+        nums.textContent='Recibidas: '+d.recDay+' de '+d.expDay+' esperadas · Faltantes: '+Math.max(0,d.expDay-d.recDay);
+        barWrap.className='goes-day-bar';barFill.className='goes-day-fill';
+        if(barFill.style)barFill.style.width=d.pct+'%';
+        barWrap.append(barFill);
+        box.append(top,nums,barWrap);
+        dailyStrip.append(box);
+      }
+    }
+
+    if(!slots.length&&!rows.length){
       const empty=document.createElement('p');empty.className='goes-empty-msg';empty.textContent='No se encontraron mensajes GOES en este rango temporal para la estación seleccionada.';list.append(empty);return;
     }
-    for(const row of rows.slice(0,250)){
-      const card=document.createElement('article'),head=document.createElement('header'),meta=document.createElement('div'),badges=document.createElement('div'),frame=document.createElement('pre');
-      card.className='goes-msg-card';head.className='goes-msg-head';meta.className='goes-msg-meta';badges.className='goes-msg-badges';frame.className='goes-raw-frame';
-      const tsText=String(row.TIMESTAMP_MSG||row.TS||'—').replace('T',' ').replace('.000Z',' UTC');
-      const dcpBadge=document.createElement('strong');dcpBadge.className='goes-dcp-id';dcpBadge.textContent='DCP '+(row.DCP_ID||'—');
-      const timeSpan=document.createElement('span');timeSpan.className='goes-msg-ts';timeSpan.textContent=tsText;
-      meta.append(dcpBadge,timeSpan);
-      const sig=Number(row.SIGNAL_STRENGTH);
-      const sigPill=document.createElement('span');sigPill.className='goes-pill '+(Number.isFinite(sig)?(sig>=38?'sig-good':sig>=33?'sig-warn':'sig-low'):'');
-      sigPill.textContent='Señal: '+(Number.isFinite(sig)?sig+' dB':'—');
-      const qualPill=document.createElement('span');qualPill.className='goes-pill '+((row.FAILURE_CODE==='G'&&row.DATA_QUALITY==='N')?'sig-good':'sig-warn');
-      qualPill.textContent='Falla/Calidad: '+(row.FAILURE_CODE||'?')+'/'+(row.DATA_QUALITY||'?');
-      const chanPill=document.createElement('span');chanPill.className='goes-pill';
-      chanPill.textContent='CH '+(row.CHANNEL??'—')+' · '+(row.SPACECRAFT??'—')+' · Frec '+(row.FREQUENCY_OFFSET??'—')+' · Mod '+(row.MOD_INDEX??'—');
-      badges.append(sigPill,qualPill,chanPill);
-      const raw=row.RAW_MESSAGE?String(row.RAW_MESSAGE):'';
-      if(raw&&typeof navigator!=='undefined'&&navigator.clipboard){
-        const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.className='goes-copy-btn';copyBtn.textContent='Copiar trama';
-        copyBtn.addEventListener('click',()=>{navigator.clipboard.writeText(raw);copyBtn.textContent='¡Copiado!';setTimeout(()=>{copyBtn.textContent='Copiar trama';},1500);});
-        badges.append(copyBtn);
-      }
-      head.append(meta,badges);
-      if(raw){
-        const domsatHeader=raw.slice(0,37),payload=raw.slice(37).replace(/^\r?\n/,'');
-        const hSpan=document.createElement('span'),pSpan=document.createElement('span');
-        hSpan.className='goes-raw-header';hSpan.textContent=domsatHeader+'\n';
-        pSpan.className='goes-raw-payload';pSpan.textContent=payload||'(sin carga útil adicional)';
-        frame.append(hSpan,pSpan);
+
+    // Render each Expected vs Received slot (last 48h slots + any extra older received frames)
+    for(const slot of slots){
+      const row=slot.received;
+      const card=document.createElement('article'),head=document.createElement('header'),meta=document.createElement('div'),badges=document.createElement('div');
+      card.className='goes-msg-card '+(row?'goes-msg-ok':'goes-msg-missing');
+      head.className='goes-msg-head';meta.className='goes-msg-meta';badges.className='goes-msg-badges';
+
+      const statusBadge=document.createElement('strong');
+      statusBadge.className='goes-status-badge '+(row?'is-received':'is-missing');
+      statusBadge.textContent=row?'✓ RECIBIDA':'✗ NO RECIBIDA';
+
+      const expSpan=document.createElement('span');
+      expSpan.className='goes-slot-time';
+      expSpan.textContent='Esperada: '+formatUtcSlot(slot.expectedMs);
+
+      const recSpan=document.createElement('span');
+      recSpan.className='goes-slot-time '+(row?'goes-slot-rec-ok':'goes-slot-rec-miss');
+      if(row){
+        const deltaTxt=slot.deltaSec===0?'a tiempo':(slot.deltaSec>0?'+'+slot.deltaSec+'s':slot.deltaSec+'s');
+        recSpan.textContent='→ Recibida: '+formatUtcSlot(slot.receivedMs)+' ('+deltaTxt+')';
       }else{
-        frame.textContent='(Trama cruda no almacenada en este registro; encabezado disponible arriba)';
+        recSpan.textContent='→ Recibida: Sin recepción en esta ventana horaria';
       }
-      card.append(head,frame);list.append(card);
+      meta.append(statusBadge,expSpan,recSpan);
+
+      if(row){
+        const sig=Number(row.SIGNAL_STRENGTH);
+        const sigPill=document.createElement('span');sigPill.className='goes-pill '+(Number.isFinite(sig)?(sig>=38?'sig-good':sig>=33?'sig-warn':'sig-low'):'');
+        sigPill.textContent='Señal: '+(Number.isFinite(sig)?sig+' dB':'—');
+        const qualPill=document.createElement('span');qualPill.className='goes-pill '+((row.FAILURE_CODE==='G'&&row.DATA_QUALITY==='N')?'sig-good':'sig-warn');
+        qualPill.textContent='Calidad: '+(row.FAILURE_CODE||'?')+'/'+(row.DATA_QUALITY||'?');
+        const chanPill=document.createElement('span');chanPill.className='goes-pill';
+        chanPill.textContent='DCP '+(row.DCP_ID||dcpCode)+' · CH '+(row.CHANNEL??'—')+' · Sat '+(row.SPACECRAFT??'—')+' · Frec '+(row.FREQUENCY_OFFSET??'—');
+        badges.append(sigPill,qualPill,chanPill);
+        const raw=row.RAW_MESSAGE?String(row.RAW_MESSAGE):'';
+        if(raw&&typeof navigator!=='undefined'&&navigator.clipboard){
+          const copyBtn=document.createElement('button');copyBtn.type='button';copyBtn.className='goes-copy-btn';copyBtn.textContent='Copiar trama';
+          copyBtn.addEventListener('click',()=>{navigator.clipboard.writeText(raw);copyBtn.textContent='¡Copiado!';setTimeout(()=>{copyBtn.textContent='Copiar trama';},1500);});
+          badges.append(copyBtn);
+        }
+        head.append(meta,badges);
+        const frame=document.createElement('pre');frame.className='goes-raw-frame';
+        if(raw){
+          const domsatHeader=raw.slice(0,37),payload=raw.slice(37).replace(/^\r?\n/,'');
+          const hSpan=document.createElement('span'),pSpan=document.createElement('span');
+          hSpan.className='goes-raw-header';hSpan.textContent='[ENCABEZADO DOMSAT 37B] '+domsatHeader+'\n';
+          pSpan.className='goes-raw-payload';pSpan.textContent=payload||'(sin carga útil adicional)';
+          frame.append(hSpan,pSpan);
+        }else{
+          frame.textContent='(Trama cruda no almacenada en este registro; metadatos de recepción arriba)';
+        }
+        card.append(head,frame);
+      }else{
+        const missPill=document.createElement('span');missPill.className='goes-pill sig-low';
+        missPill.textContent='DCP '+dcpCode+' · Ventana perdida';
+        badges.append(missPill);
+        head.append(meta,badges);
+        card.append(head);
+      }
+      list.append(card);
     }
   }
   $('query-export').addEventListener('click',async()=>{

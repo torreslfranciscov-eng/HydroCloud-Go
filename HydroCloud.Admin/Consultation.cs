@@ -46,7 +46,8 @@ public record UpstreamCondition(string DamStationId,string StationId,UpstreamMet
 public record LevelPoint(DateTimeOffset Timestamp,double Value);
 public record LatestLevel(string StationId,bool SensorConfigured,string? SensorId,string? SensorType,string? Unit,double? Value,DateTimeOffset? Timestamp,bool? Valid,double? PreviousValue,DateTimeOffset? PreviousTimestamp,bool? PreviousValid,List<LevelPoint> History);
 public record QuerySeries(string SensorId,string Name,string Unit,string ConfiguredChartType);
-public record QueryData(string Product,QueryWindow Window,List<string> Columns,List<Dictionary<string,object?>> Rows,List<QuerySeries> Series,bool Truncated,string Note);
+public record GoesScheduleInfo(string DcpId,string FirstTransmission,string Interval,string Window,int? Channel,string Satellite,string Decoder,int ExpectedPerDay);
+public record QueryData(string Product,QueryWindow Window,List<string> Columns,List<Dictionary<string,object?>> Rows,List<QuerySeries> Series,bool Truncated,string Note,GoesScheduleInfo? GoesSchedule=null);
 public interface IConsultationRepository
 {
     Task<List<PublicStation>> Stations();
@@ -291,14 +292,33 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
             while(await sensorReader.ReadAsync(ct))series.Add(new(sensorReader.GetString(0),sensorReader.GetString(1),sensorReader.GetString(2),sensorReader.GetString(3)));
         }
         var keys=new List<string>();
-        if(p.Scope=="DCP_ID")
+        GoesScheduleInfo? goesSchedule=null;
+        await using(var dcps=new NpgsqlCommand("SELECT TRIM(IdSatelital),COALESCE(PrimeraTransmision,'00:00:00'),COALESCE(IntervaloTransmision,'01:00:00'),COALESCE(VentanaTransmision,'00:00:10'),CanalPrimario,COALESCE(Satelite,'GOES-E'),COALESCE(Decodificador,'') FROM dbo.DatosGOES WHERE UPPER(IdEstacion)=@id AND IdSatelital IS NOT NULL",c){CommandTimeout=15})
         {
-            await using var dcps=new NpgsqlCommand("SELECT DISTINCT IdSatelital FROM dbo.DatosGOES WHERE UPPER(IdEstacion)=@id",c){CommandTimeout=15};
             dcps.Parameters.AddWithValue("id",NpgsqlDbType.Text,stationIdText);
-            await using var dr=await dcps.ExecuteReaderAsync(ct);while(await dr.ReadAsync(ct)) keys.Add(dr.GetString(0).Trim());
-        } else keys.Add(Convert.ToString(code,CultureInfo.InvariantCulture)!.Trim());
+            await using var dr=await dcps.ExecuteReaderAsync(ct);
+            while(await dr.ReadAsync(ct))
+            {
+                var dcp=dr.GetString(0);
+                if(p.Scope=="DCP_ID" && !keys.Contains(dcp)) keys.Add(dcp);
+                if(goesSchedule is null)
+                {
+                    var firstTx=dr.GetString(1).Trim();
+                    var interval=dr.GetString(2).Trim();
+                    var win=dr.GetString(3).Trim();
+                    int? chan=dr.IsDBNull(4)?null:Convert.ToInt32(dr.GetValue(4),CultureInfo.InvariantCulture);
+                    var sat=dr.GetString(5).Trim();
+                    var dec=dr.GetString(6).Trim();
+                    int expectedDay=24;
+                    if(TimeSpan.TryParse(interval,CultureInfo.InvariantCulture,out var tsInt) && tsInt.TotalMinutes>=1)
+                        expectedDay=Math.Max(1,(int)Math.Round(1440.0/tsInt.TotalMinutes));
+                    goesSchedule=new(dcp,firstTx,interval,win,chan,string.IsNullOrEmpty(sat)?"GOES-E":sat,dec,expectedDay);
+                }
+            }
+        }
+        if(p.Scope!="DCP_ID") keys.Add(Convert.ToString(code,CultureInfo.InvariantCulture)!.Trim());
         var columns=p.Columns.Split(',').ToList();
-        if(keys.Count==0) return new(p.Key,window,columns,[],series,false,"No hay un identificador GOES configurado para esta estación.");
+        if(keys.Count==0) return new(p.Key,window,columns,[],series,false,"No hay un identificador GOES configurado para esta estación.",goesSchedule);
         var date=p.Bucket=="day";
         var begin=date?"@startDate":"@startTime";
         var end=date?"@endDate":"@endTime";
@@ -335,7 +355,7 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
             rows.Add(row);
         }
         bool truncated=rows.Count>2000;if(truncated) rows.RemoveAt(rows.Count-1);
-        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?" Se muestran/exportan las primeras 2,000 filas: reduce el periodo para obtener el resto.":""));
+        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?" Se muestran/exportan las primeras 2,000 filas: reduce el periodo para obtener el resto.":""),goesSchedule);
     }
 }
 
