@@ -661,16 +661,23 @@
         const pct=Math.min(100,Math.round((recDay*100)/expDay));
         dayCards.push({dayKey,isToday,recDay,expDay,pct});
       }
+      const shortMonths=['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
       for(const d of dayCards.slice(0,8)){
-        const box=document.createElement('div'),top=document.createElement('div'),dayLbl=document.createElement('span'),pctBadge=document.createElement('strong'),nums=document.createElement('div'),barWrap=document.createElement('div'),barFill=document.createElement('div');
+        const box=document.createElement('div'),top=document.createElement('div'),dayLbl=document.createElement('span'),pctBadge=document.createElement('strong'),nums=document.createElement('div'),ratioSpan=document.createElement('b'),missSpan=document.createElement('small'),barWrap=document.createElement('div'),barFill=document.createElement('div');
         const stateCls=d.pct>=85?'goes-day-ok':d.pct>=50?'goes-day-warn':'goes-day-miss';
+        const [,mStr,dStr]=d.dayKey.split('-');
+        const shortDate=Number(dStr)+' '+shortMonths[(Number(mStr)||1)-1];
+        const missing=Math.max(0,d.expDay-d.recDay);
         box.className='goes-day-card '+stateCls;
+        box.title=d.dayKey+' UTC · Recibidas: '+d.recDay+' de '+d.expDay+' esperadas ('+d.pct+'%) · Faltantes: '+missing;
         top.className='goes-day-top';
-        dayLbl.textContent=d.isToday?d.dayKey+' (Hoy UTC)':d.dayKey;
+        dayLbl.textContent=d.isToday?shortDate+' · Hoy':shortDate;
         pctBadge.textContent=d.pct+'%';
         top.append(dayLbl,pctBadge);
         nums.className='goes-day-nums';
-        nums.textContent='Recibidas: '+d.recDay+' de '+d.expDay+' esperadas · Faltantes: '+Math.max(0,d.expDay-d.recDay);
+        ratioSpan.textContent=d.recDay+'/'+d.expDay+' TX';
+        missSpan.textContent=missing>0?'−'+missing:'OK';
+        nums.append(ratioSpan,missSpan);
         barWrap.className='goes-day-bar';barFill.className='goes-day-fill';
         if(barFill.style)barFill.style.width=d.pct+'%';
         barWrap.append(barFill);
