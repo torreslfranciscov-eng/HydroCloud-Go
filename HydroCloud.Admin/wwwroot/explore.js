@@ -254,8 +254,8 @@
       const level=latestLevels.get(stationKey(s.id));if(level?.value!==null&&level?.value!==undefined){const reading=document.createElement('div'),readingLabel=document.createElement('span'),readingValue=document.createElement('strong');reading.className='station-popup-reading';readingLabel.textContent=level.sensorType||'Última lectura';readingValue.textContent=Number(level.value).toLocaleString('es-MX',{maximumFractionDigits:3})+' '+(level.unit||'');reading.append(readingLabel,readingValue);box.append(reading);}
       const note=document.createElement('p');note.className='station-popup-note';note.textContent=signalLabels[state];box.append(note);
       const actions=document.createElement('div');actions.className='station-popup-actions';
-      const button=document.createElement('button');button.className='station-popup-action';button.textContent='Ver series y detalle';button.type='button';button.addEventListener('click',()=>{station.value=s.id;map.closePopup();openQueryDialog();});
-      const goesButton=document.createElement('button');goesButton.className='station-popup-action station-popup-action-secondary';goesButton.textContent='📡 Mensajes GOES';goesButton.type='button';goesButton.addEventListener('click',()=>{station.value=s.id;$('query-product').value='transmisiones';map.closePopup();openQueryDialog();runQuery(null,true);});
+      const button=document.createElement('button');button.className='station-popup-action';button.textContent='Ver series y detalle';button.type='button';button.addEventListener('click',()=>{station.value=s.id;setGoesView(false);map.closePopup();openQueryDialog();});
+      const goesButton=document.createElement('button');goesButton.className='station-popup-action station-popup-action-secondary';goesButton.textContent='📡 Mensajes GOES';goesButton.type='button';goesButton.addEventListener('click',()=>{station.value=s.id;setGoesView(true,'transmisiones');map.closePopup();openQueryDialog();runQuery(null,true);});
       actions.append(button,goesButton);box.append(actions);
       const tooltip=document.createElement('div'),tooltipHeader=document.createElement('div'),tooltipTitle=document.createElement('strong'),tooltipBadge=document.createElement('span');
       tooltip.className='station-tooltip';tooltipHeader.className='station-tooltip-header';tooltipTitle.className='station-tooltip-title';tooltipTitle.textContent=s.name;
@@ -510,8 +510,28 @@
     }
   }
   loadStations();
+  let goesViewActive=false,goesSubProduct='transmisiones';
+  function setGoesView(active,subProd){
+    goesViewActive=Boolean(active);
+    if(subProd)goesSubProduct=subProd;
+    const btn=$('toggle-goes-view');
+    if(btn){
+      btn.setAttribute('aria-pressed',String(goesViewActive));
+      btn.textContent=goesViewActive?'📈 Ver Variables Hidrológicas':'📡 TX / Telemetría GOES';
+    }
+    for(const [id,key] of [['goes-tab-transmisiones','transmisiones'],['goes-tab-eficiencia','eficiencia'],['goes-tab-recepcion','recepcion']]){
+      const tab=$(id);if(tab)tab.setAttribute('aria-pressed',String(goesSubProduct===key));
+    }
+  }
+  const goesToggleBtn=$('toggle-goes-view');
+  if(goesToggleBtn)goesToggleBtn.addEventListener('click',()=>{setGoesView(!goesViewActive);if(station.value&&queryDialog.open)runQuery(null,true);});
+  for(const [id,key] of [['goes-tab-transmisiones','transmisiones'],['goes-tab-eficiencia','eficiencia'],['goes-tab-recepcion','recepcion']]){
+    const tab=$(id);
+    if(tab)tab.addEventListener('click',()=>{setGoesView(true,key);if(station.value&&queryDialog.open)runQuery(null,true);});
+  }
   function params(){
-    const query=new URLSearchParams({stationId:station.value,product:$('query-product').value});
+    const activeProd=goesViewActive?goesSubProduct:($('query-product').value||'variables');
+    const query=new URLSearchParams({stationId:station.value,product:activeProd});
     if(period.value!=='last7'){query.set('start',start.value+':00Z');query.set('end',end.value+':00Z');}
     return query;
   }
@@ -523,8 +543,9 @@
       show(data.rows.length.toLocaleString()+' filas · '+data.window.start.slice(0,16).replace('T',' ')+' — '+data.window.end.slice(0,16).replace('T',' ')+' UTC'+(data.truncated?' · resultado limitado':''));$('query-note').hidden=false;$('query-note-text').textContent=data.note;$('query-results').hidden=false;$('query-export').disabled=data.rows.length===0;renderGoesMessages();renderTable();renderSelectors();draw();
     }catch(error){show(error.message||'Error de conexión.',true);}finally{busy=false;$('query-submit').disabled=false;}
   }
+  $('query-submit').addEventListener('click',()=>setGoesView(false));
   $('query-form').addEventListener('submit',event=>runQuery(event,true));
-  $('query-product').addEventListener('change',()=>{if(station.value&&queryDialog.open)runQuery(null,true);});
+  $('query-product').addEventListener('change',()=>{setGoesView(false);if(station.value&&queryDialog.open)runQuery(null,true);});
   station.addEventListener('change',()=>{if(station.value&&queryDialog.open)runQuery(null,true);});
   function parseHmsSeconds(hms,fallbackSec){
     const parts=String(hms||'').trim().split(':').map(Number);
@@ -535,12 +556,21 @@
     return new Date(ms).toISOString().replace('T',' ').slice(0,19)+' UTC';
   }
   function renderGoesMessages(){
-    const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary'),dailyStrip=$('goes-daily-strip');
+    const panel=$('goes-messages-panel'),list=$('goes-messages-list'),summary=$('goes-messages-summary'),dailyStrip=$('goes-daily-strip'),chartCard=$('chart-workspace-card');
     if(!panel||!list||!summary)return;
-    const isGoes=result&&(result.product==='transmisiones'||result.columns.includes('RAW_MESSAGE'));
+    const isGoes=result&&(goesViewActive||['transmisiones','eficiencia','recepcion'].includes(result.product)||result.columns.includes('RAW_MESSAGE'));
     panel.hidden=!isGoes;
+    if(chartCard)chartCard.hidden=Boolean(isGoes&&result.product==='transmisiones');
     if(!isGoes){list.replaceChildren();summary.replaceChildren();if(dailyStrip)dailyStrip.replaceChildren();return;}
     list.replaceChildren();summary.replaceChildren();if(dailyStrip)dailyStrip.replaceChildren();
+    if(result.product!=='transmisiones'&&!result.columns.includes('RAW_MESSAGE')){
+      const sched=result.goesSchedule||{};
+      for(const [k,v] of [['DCP',sched.dcpId||'—'],['1ª TX UTC',sched.firstTransmission||'—'],['Intervalo',sched.interval||'—'],['Esperadas/día',sched.expectedPerDay||24],['Canal / Sat.',(sched.channel??'—')+' · '+(sched.satellite||'GOES-E')],['Registros',result.rows.length.toLocaleString()]]){
+        const chip=document.createElement('div'),lbl=document.createElement('span'),val=document.createElement('strong');
+        chip.className='goes-summary-chip';lbl.textContent=k;val.textContent=String(v);chip.append(lbl,val);summary.append(chip);
+      }
+      return;
+    }
     const rows=[...result.rows].reverse();
     const sched=result.goesSchedule||{};
     const intervalSec=Math.max(300,parseHmsSeconds(sched.interval||'01:00:00',3600));

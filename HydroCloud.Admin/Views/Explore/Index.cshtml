@@ -124,7 +124,7 @@
                 <div class="cyber-field">
                     <label>Producto Hidrológico</label>
                     <select id="query-product" class="cyber-select">
-                        @foreach (var p in QueryProduct.All)
+                        @foreach (var p in QueryProduct.All.Where(x => !x.Title.StartsWith("GOES", StringComparison.OrdinalIgnoreCase)))
                         {
                             <option value="@p.Key">@p.Title</option>
                         }
@@ -149,6 +149,9 @@
                     <button id="query-submit" class="btn-cyber-primary" type="submit">
                         <span aria-hidden="true">⌕</span> Consultar
                     </button>
+                    <button id="toggle-goes-view" class="btn-cyber-goes" type="button" aria-pressed="false">
+                        📡 TX / Telemetría GOES
+                    </button>
                     <button id="query-export" class="btn-cyber-secondary" type="button" disabled>
                         Descargar CSV
                     </button>
@@ -169,13 +172,18 @@
                     <span class="chart-eyebrow">Telemetría Satelital DOMSAT / LRGS · Control de Recepción</span>
                     <h3>Transmisiones GOES: Esperadas vs. Recibidas y Tramas Crudas</h3>
                 </div>
-                <div id="goes-messages-summary" class="goes-messages-summary"></div>
+                <div class="goes-submode" role="group" aria-label="Vista de telemetría GOES">
+                    <button id="goes-tab-transmisiones" type="button" aria-pressed="true" data-goes-product="transmisiones">Tramas y Ventanas</button>
+                    <button id="goes-tab-eficiencia" type="button" aria-pressed="false" data-goes-product="eficiencia">Eficiencia Diaria</button>
+                    <button id="goes-tab-recepcion" type="button" aria-pressed="false" data-goes-product="recepcion">Intentos LRGS</button>
+                </div>
             </div>
+            <div id="goes-messages-summary" class="goes-messages-summary"></div>
             <div id="goes-daily-strip" class="goes-daily-strip" aria-label="Cumplimiento diario Esperadas vs Recibidas"></div>
             <div id="goes-messages-list" class="goes-messages-list" role="region" aria-label="Bitácora de ventanas esperadas vs recibidas y tramas GOES crudas"></div>
         </section>
 
-        <section class="cyber-card chart-workspace">
+        <section id="chart-workspace-card" class="cyber-card chart-workspace">
             <div class="chart-toolbar">
                 <div>
                     <span class="chart-eyebrow">Análisis temporal</span>
