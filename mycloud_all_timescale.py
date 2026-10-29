@@ -104,6 +104,7 @@ PG_PORT = int(os.environ.get('PG_PORT', config.getint('timescaledb', 'port', fal
 PG_USER = os.environ.get('PG_USER', config.get('timescaledb', 'user', fallback='postgres'))
 PG_PASSWORD = os.environ.get('PG_PASSWORD', config.get('timescaledb', 'password', fallback='Cfe2026##'))
 PG_DATABASE = os.environ.get('PG_DATABASE', config.get('timescaledb', 'database', fallback='mycloud_timescale'))
+PG_SSLMODE = os.environ.get('PG_SSLMODE', config.get('timescaledb', 'sslmode', fallback='prefer'))
 
 # Oracle Cloud Database
 ORACLE_USER = os.environ.get('ORACLE_USER', config.get('oracle_cloud', 'user', fallback=''))
@@ -435,6 +436,7 @@ def _create_pg_pool():
         user=PG_USER,
         password=PG_PASSWORD,
         database=PG_DATABASE,
+        sslmode=PG_SSLMODE,
         client_encoding='UTF8',
         options='-c client_encoding=UTF8 -c statement_timeout=15000',
         # Evitar conexiones colgadas
@@ -841,9 +843,11 @@ def _ensure_pg_tables():
                 CONSTRAINT dcp_datos_pkey PRIMARY KEY (ts, dcp_id, sensor_id)
             );
         """)
-        # Intentar crear hypertable (ignora si ya existe)
+        # Intentar crear hypertable (ignora si ya existe o si es PostgreSQL estándar como Aiven)
+        conn.commit()
         try:
             cur.execute("SELECT create_hypertable('public.dcp_datos', 'ts', if_not_exists => TRUE);")
+            conn.commit()
         except Exception:
             conn.rollback()
 
@@ -865,8 +869,10 @@ def _ensure_pg_tables():
                 CONSTRAINT resumen_horario_pkey PRIMARY KEY (ts, dcp_id, sensor_id)
             );
         """)
+        conn.commit()
         try:
             cur.execute("SELECT create_hypertable('public.resumen_horario', 'ts', if_not_exists => TRUE);")
+            conn.commit()
         except Exception:
             conn.rollback()
 
@@ -888,8 +894,10 @@ def _ensure_pg_tables():
                 CONSTRAINT resumen_diario_pkey PRIMARY KEY (fecha, dcp_id, sensor_id)
             );
         """)
+        conn.commit()
         try:
             cur.execute("SELECT create_hypertable('public.resumen_diario', 'fecha', if_not_exists => TRUE);")
+            conn.commit()
         except Exception:
             conn.rollback()
 
@@ -1101,6 +1109,31 @@ def _ensure_pg_tables():
             FROM public.estatus_estaciones e;
         """)
 
+        cur.execute("""
+            CREATE OR REPLACE VIEW public.v_mensajes_goes_estacion AS
+            SELECT
+                h.dcp_id,
+                h.timestamp_msg,
+                h.ts,
+                h.signal_strength,
+                h.frequency_offset,
+                h.mod_index,
+                h.data_quality,
+                h.channel,
+                h.spacecraft,
+                h.data_source,
+                h.failure_code,
+                LENGTH(COALESCE(h.raw_message, '')) AS longitud_trama,
+                SUBSTRING(COALESCE(h.raw_message, '') FROM 1 FOR 37) AS encabezado_domsat,
+                CASE
+                    WHEN LENGTH(COALESCE(h.raw_message, '')) > 37 THEN SUBSTRING(h.raw_message FROM 38)
+                    ELSE COALESCE(h.raw_message, '')
+                END AS cuerpo_mensaje,
+                h.raw_message
+            FROM public.dcp_headers h
+            ORDER BY h.timestamp_msg DESC;
+        """)
+
         # --- Trigger para actualizar ultimas_mediciones ---
         cur.execute("""
             CREATE OR REPLACE FUNCTION public.trg_actualizar_ultima_medicion()
@@ -1271,6 +1304,33 @@ def _ensure_pg_tables():
             ON public.precipitacion_cuenca (ts DESC, tipo);
         """)
 
+        # --- diagnostico_diario_goes ---
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS public.diagnostico_diario_goes (
+                fecha DATE NOT NULL,
+                dcp_id VARCHAR(20) NOT NULL,
+                id_asignado VARCHAR(50),
+                nombre VARCHAR(200),
+                tx_programadas INT,
+                tx_recibidas INT,
+                porcentaje_eficiencia REAL,
+                potencia_prom REAL,
+                potencia_min REAL,
+                potencia_max REAL,
+                voltaje_prom REAL,
+                voltaje_min REAL,
+                voltaje_max REAL,
+                longitud_prom REAL,
+                canales_usados INT,
+                primera_tx TIMESTAMPTZ,
+                ultima_tx TIMESTAMPTZ,
+                calidad_senal VARCHAR(20),
+                estado_operativo VARCHAR(20),
+                ultima_actualizacion TIMESTAMPTZ DEFAULT NOW(),
+                CONSTRAINT diagnostico_diario_goes_pkey PRIMARY KEY (fecha, dcp_id)
+            );
+        """)
+
         conn.commit()
         cur.close()
         _tables_ensured = True
@@ -1298,6 +1358,67 @@ def load_estaciones_from_sql():
         estaciones_ora = load_estaciones_from_oracle()
         if estaciones_ora:
             return estaciones_ora
+
+    # 1. Leer primero desde Aiven PostgreSQL (esquema dbo en la nube)
+    pg_conn = None
+    try:
+        print("[DB] Cargando catálogo de estaciones desde Aiven PostgreSQL (dbo.nv_goessgd)...")
+        pg_conn = get_pg_conn()
+        cur_pg = pg_conn.cursor()
+        cur_pg.execute("""
+            SELECT idsatelital, minuto, nombre, idasignado, rangotransmision,
+                   decodificador, latitud, longitud, primeratransmision, intervalotransmision
+            FROM dbo.nv_goessgd
+            WHERE minuto IS NOT NULL
+              AND CAST(minuto AS INT) BETWEEN 0 AND 59
+              AND idsatelital IS NOT NULL
+        """)
+        pg_rows = cur_pg.fetchall()
+        cur_pg.close()
+        if pg_rows:
+            estaciones = {}
+            for r in pg_rows:
+                dcp_id = str(r[0]).strip().upper()
+                minuto = int(r[1])
+                nombre = str(r[2] or "Sin nombre").strip()
+                id_asignado = str(r[3] or "").strip()
+                rango_str = r[4]
+                decoder = str(r[5] or "GS300").strip()
+                lat = float(r[6]) if r[6] is not None else None
+                lon = float(r[7]) if r[7] is not None else None
+                primera_tx = str(r[8])
+                intervalo_tx = __import__("gs300_catalog").duration_minutes(r[9])
+                rango_transmision = 60
+                if rango_str:
+                    try:
+                        partes = str(rango_str).split(':')
+                        if len(partes) >= 2:
+                            rango_transmision = (int(partes[0]) * 60) + int(partes[1])
+                    except Exception:
+                        pass
+                estaciones[dcp_id] = {
+                    "primera_transmision": primera_tx,
+                    "intervalo_transmision": intervalo_tx,
+                    "minuto": minuto,
+                    "nombre": nombre,
+                    "id_asignado": id_asignado,
+                    "rango_transmision": rango_transmision,
+                    "decoder": decoder,
+                    "latitud": lat,
+                    "longitud": lon
+                }
+            decoder_counts = {}
+            for v in estaciones.values():
+                d = v.get("decoder", "GS300")
+                decoder_counts[d] = decoder_counts.get(d, 0) + 1
+            tipos = ", ".join(f"{k}:{v}" for k, v in sorted(decoder_counts.items()))
+            print(f"[DB AIVEN] {len(estaciones)} estaciones cargadas desde la nube ({tipos})")
+            return estaciones
+    except Exception as e_pg:
+        print(f"[WARN] Catálogo en Aiven no disponible ({e_pg}), usando fallback SQL Server...")
+    finally:
+        if pg_conn:
+            release_pg_conn(pg_conn)
 
     conn = None
     try:
@@ -1395,6 +1516,60 @@ def load_sensores_from_sql():
         if sensores_ora:
             return sensores_ora
 
+    # 1. Leer primero desde Aiven PostgreSQL (esquema dbo en la nube)
+    pg_conn = None
+    try:
+        pg_conn = get_pg_conn()
+        cur_pg = pg_conn.cursor()
+        cur_pg.execute("""
+            SELECT
+                e.idasignado,
+                s.numerosensor,
+                ts.nombre AS sensor,
+                COALESCE(s.puntodecimal, 2) AS puntodecimal,
+                s.periodomuestra,
+                s.valorminimo,
+                s.valormaximo,
+                COALESCE(
+                    (SELECT CASE WHEN cs.operador = '-' THEN -1 * cs.valorcota ELSE cs.valorcota END
+                     FROM dbo.cotasensor cs
+                     WHERE cs.idsensor = s.id
+                       AND (cs.fin = 0 OR cs.fin IS NULL)
+                     ORDER BY cs.fecharegistro DESC
+                     LIMIT 1), 0.0
+                ) AS valorcota
+            FROM dbo.sensor s
+            INNER JOIN dbo.estacion e ON s.idestacion = e.id
+            INNER JOIN dbo.tiposensor ts ON s.idtiposensor = ts.id
+            WHERE s.activo = 1 AND e.activo = 1
+        """)
+        pg_rows = cur_pg.fetchall()
+        cur_pg.close()
+        if pg_rows:
+            sensores_por_estacion = {}
+            for r in pg_rows:
+                id_asignado = str(r[0]).strip()
+                if id_asignado not in sensores_por_estacion:
+                    sensores_por_estacion[id_asignado] = []
+                valor_cota = r[7] if r[7] is not None else 0.0
+                sensores_por_estacion[id_asignado].append({
+                    "numero_sensor": str(r[1]).zfill(4),
+                    "nombre": str(r[2]),
+                    "decimales": int(r[3]),
+                    "periodo": int(float(r[4])),
+                    "valor_minimo": float(r[5]),
+                    "valor_maximo": float(r[6]),
+                    "valor_cota": float(valor_cota),
+                    "posiciones": []
+                })
+            print(f"[SENSORES AIVEN] Cargados {sum(len(v) for v in sensores_por_estacion.values())} sensores desde la nube")
+            return sensores_por_estacion
+    except Exception as e_pg:
+        print(f"[WARN] Sensores en Aiven no disponibles ({e_pg}), usando fallback SQL Server...")
+    finally:
+        if pg_conn:
+            release_pg_conn(pg_conn)
+
     conn = None
     try:
         conn = get_sql_conn()
@@ -1475,9 +1650,15 @@ def revalidar_datos_invalidos(sensores_dict, estaciones_dict, dias=3):
     conn = get_pg_conn()
     try:
         cur = conn.cursor()
-        # Verificar primero si hay algún registro inválido en la ventana de días
-        cur.execute("SELECT 1 FROM dcp_datos WHERE valido = false AND ts > NOW() - make_interval(days := %s) LIMIT 1", (dias,))
-        if not cur.fetchone():
+        # Obtener en una sola consulta los sensores que tienen registros inválidos recientes
+        cur.execute("""
+            SELECT dcp_id, sensor_id, MIN(valor), MAX(valor)
+            FROM dcp_datos
+            WHERE valido = false AND ts > NOW() - make_interval(days := %s)
+            GROUP BY dcp_id, sensor_id
+        """, (dias,))
+        invalid_groups = {(r[0], r[1]): (r[2], r[3]) for r in cur.fetchall()}
+        if not invalid_groups:
             cur.close()
             return
 
@@ -1499,6 +1680,12 @@ def revalidar_datos_invalidos(sensores_dict, estaciones_dict, dias=3):
                 vmax = sensor.get("valor_maximo")
                 sid = sensor["numero_sensor"]
                 if vmin is None or vmax is None:
+                    continue
+                bounds = invalid_groups.get((dcp_id, sid))
+                if not bounds:
+                    continue
+                min_inv, max_inv = bounds
+                if min_inv is None or max_inv is None or max_inv < vmin or min_inv > vmax:
                     continue
                 # Corregir registros que están DENTRO de los límites actuales pero marcados inválidos
                 cur.execute("""
@@ -1533,10 +1720,54 @@ def revalidar_datos_invalidos(sensores_dict, estaciones_dict, dias=3):
 
 # ==================== CARGA UMBRALES DE PRECIPITACIÓN ====================
 def load_umbrales_precipitacion():
-    """Carga umbrales activos de precipitación desde SQL Server (UmbralAlertas).
+    """Carga umbrales activos de precipitación desde Aiven PostgreSQL (o fallback SQL Server).
     Retorna dict keyed por (id_asignado, numero_sensor) → lista de umbrales."""
     if DB_BACKEND == 'oracle':
         return {}
+    pg_conn = None
+    try:
+        pg_conn = get_pg_conn()
+        cur_pg = pg_conn.cursor()
+        cur_pg.execute("""
+            SELECT u.id, u.valorreferencia, u.umbral, u.operador, u.periodo,
+                   u.nombre, u.color,
+                   s.numerosensor, e.idasignado, e.nombre AS estacionnombre
+            FROM dbo.umbralalertas u
+            JOIN dbo.sensorcliente sc ON u.idsensorcliente = sc.id
+            JOIN dbo.sensor s ON sc.idsensor = s.id
+            JOIN dbo.tiposensor ts ON s.idtiposensor = ts.id
+            JOIN dbo.estacion e ON s.idestacion = e.id
+            WHERE u.activo = 1 AND ts.nombre = 'Precipitación'
+        """)
+        pg_rows = cur_pg.fetchall()
+        cur_pg.close()
+        umbrales = {}
+        count = 0
+        for r in pg_rows:
+            num_sensor = str(r[7]).zfill(4)
+            id_asignado = str(r[8]).strip()
+            key = (id_asignado, num_sensor)
+            if key not in umbrales:
+                umbrales[key] = []
+            umbrales[key].append({
+                "umbral_id": int(r[0]),
+                "valor_referencia": float(r[1]),
+                "umbral": float(r[2]),
+                "operador": str(r[3]).strip(),
+                "periodo": int(r[4]) if r[4] else 60,
+                "nombre": str(r[5]).strip(),
+                "color": str(r[6] or "").strip(),
+                "estacion_nombre": str(r[9]).strip(),
+            })
+            count += 1
+        print(f"[UMBRALES AIVEN] {count} umbrales de precipitación cargados desde la nube ({len(umbrales)} sensores)")
+        return umbrales
+    except Exception as e_pg:
+        print(f"[WARN] Umbrales en Aiven no disponibles ({e_pg}), usando fallback SQL Server...")
+    finally:
+        if pg_conn:
+            release_pg_conn(pg_conn)
+
     conn = None
     try:
         conn = get_sql_conn()
@@ -2315,7 +2546,7 @@ def actualizar_resumenes_dcp(dcp_id, id_asignado, ts_inicio, ts_fin, timestamp_g
             fecha_cursor += datetime.timedelta(days=1)
         
         for fecha_resumen in fechas_afectadas:
-            ts_dia_start = datetime.datetime(fecha_resumen.year, fecha_resumen.month, fecha_resumen.day, 0, 0, 0, tzinfo=datetime.timezone.utc)
+            ts_dia_start = datetime.datetime(fecha_resumen.year, fecha_resumen.month, fecha_resumen.day, 0, 1, 0, tzinfo=datetime.timezone.utc)
             ts_dia_end = ts_dia_start + datetime.timedelta(days=1)
             for sensor in sensores:
                 try:
@@ -3012,6 +3243,24 @@ def actualizar_estatus_estaciones_oracle():
         if conn:
             release_pg_conn(conn)
         _estatus_oracle_refresh_lock.release()
+
+
+def _ejecutar_control_cupo_circular(limite_mb=4000.0, dias_max=40):
+    """Mantiene la base de datos de consulta rápida dentro del límite de 4 GB."""
+    if DB_BACKEND != 'timescale':
+        return
+    try:
+        conn = get_pg_conn()
+        if not conn:
+            return
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM public.gestionar_cupo_circular(%s, %s);", (limite_mb, dias_max))
+        res = cur.fetchone()
+        conn.commit()
+        if res:
+            print(f"[CIRCULAR 4GB] Cupo verificado: BD en {res[3]} MB (purgadas {res[1]+res[2]} filas).")
+    except Exception as e:
+        print(f"[CIRCULAR 4GB] Advertencia en verificación de cupo: {e}")
 
 
 def _lanzar_refresco_estatus_oracle():
@@ -4745,6 +4994,48 @@ def api_bitacora():
     finally:
         release_pg_conn(conn)
 
+@_monitor_app.route('/api/mensajes/<dcp_id>')
+def api_mensajes_estacion(dcp_id):
+    dcp_id = dcp_id.strip().upper()
+    limit = request.args.get('limit', 100, type=int)
+    horas = request.args.get('horas', 48, type=int)
+    conn = get_pg_conn()
+    if not conn:
+        return jsonify({"error": "Sin conexión PG"}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT dcp_id, timestamp_msg, signal_strength, frequency_offset,
+                   mod_index, data_quality, channel, spacecraft, failure_code, raw_message
+            FROM dcp_headers
+            WHERE dcp_id = %s
+              AND timestamp_msg > NOW() - make_interval(hours := %s)
+            ORDER BY timestamp_msg DESC
+            LIMIT %s
+        """, (dcp_id, horas, limit))
+        rows = cur.fetchall()
+        cur.close()
+        est_info = ESTACIONES.get(dcp_id, {})
+        result = [{
+            "dcp_id": r[0],
+            "nombre": est_info.get("nombre", "-"),
+            "id_asignado": est_info.get("id_asignado", ""),
+            "timestamp_msg": r[1].strftime("%Y-%m-%d %H:%M:%S UTC") if r[1] else None,
+            "signal_strength": r[2],
+            "frequency_offset": r[3],
+            "mod_index": r[4],
+            "data_quality": r[5],
+            "channel": r[6],
+            "spacecraft": r[7],
+            "failure_code": r[8],
+            "raw_message": r[9],
+        } for r in rows]
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_pg_conn(conn)
+
 @_monitor_app.route('/api/config', methods=['GET'])
 def api_config_get():
     cfg = {}
@@ -4953,10 +5244,11 @@ def generar_reporte_estado_bd(force=False):
         return
     _last_db_report = now
     
-    conn = get_pg_conn()
-    if not conn:
-        return
+    conn = None
     try:
+        conn = get_pg_conn()
+        if not conn:
+            return
         cur = conn.cursor()
         ts_now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -5310,6 +5602,11 @@ def main():
         # Recupera la semana reciente al desplegar; después hoy y ayer se
         # mantienen exactos en cada ciclo de diez minutos.
         _lanzar_refresco_diagnostico_oracle(dias=7)
+
+    if DB_BACKEND == 'timescale':
+        schedule.clear('circular_cupo_check')
+        schedule.every(6).hours.do(_ejecutar_control_cupo_circular).tag('circular_cupo_check')
+        _ejecutar_control_cupo_circular()
 
     print("[INFO] Programando descargas (+1 minuto)...")
     for dcp_id, data in ESTACIONES.items():
