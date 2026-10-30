@@ -628,3 +628,191 @@ body.compact-explore>.hydro-main-wrap{box-sizing:border-box;flex:1 1 auto;min-he
   50% { opacity: 0.4; transform: scale(0.85); }
 }
 
+
+
+/* Live Telemetry Radar Pill & Popover */
+.system-live-pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #065f46;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.25s ease;
+}
+.system-live-pill:hover,
+.system-live-pill:focus-within {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.6);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.25);
+}
+.system-live-pill.state-warning {
+  background: rgba(245, 158, 11, 0.1);
+  border-color: rgba(245, 158, 11, 0.45);
+  color: #92400e;
+}
+.system-live-pill.state-danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.45);
+  color: #991b1b;
+}
+
+/* Radar pulse animation */
+.live-pulse-radar {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.live-pulse-radar .radar-core {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px #10b981;
+  transition: background 0.3s ease;
+}
+.system-live-pill.state-warning .live-pulse-radar .radar-core {
+  background: #f59e0b;
+  box-shadow: 0 0 6px #f59e0b;
+}
+.system-live-pill.state-danger .live-pulse-radar .radar-core {
+  background: #ef4444;
+  box-shadow: 0 0 6px #ef4444;
+}
+.live-pulse-radar .radar-wave {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 1.5px solid #10b981;
+  animation: liveRadarPulse 2s cubic-bezier(0, 0.2, 0.8, 1) infinite;
+}
+.system-live-pill.state-warning .live-pulse-radar .radar-wave {
+  border-color: #f59e0b;
+}
+.system-live-pill.state-danger .live-pulse-radar .radar-wave {
+  border-color: #ef4444;
+}
+@keyframes liveRadarPulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+.live-status-label {
+  font-weight: 750;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+.live-dot-sep {
+  opacity: 0.4;
+}
+.live-tx-detail {
+  color: inherit;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+}
+
+/* Popover Floating Menu */
+.live-telemetry-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  width: 290px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.96);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 20px rgba(56, 189, 248, 0.12);
+  color: #f8fafc;
+  z-index: 10000;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+  cursor: default;
+  animation: popoverFadeIn 0.2s ease-out;
+}
+.system-live-pill:hover .live-telemetry-popover,
+.system-live-pill.popover-open .live-telemetry-popover {
+  display: flex;
+}
+@keyframes popoverFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.popover-head .pulse-em {
+  font-size: 1.25rem;
+}
+.popover-title {
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: #38bdf8;
+}
+.popover-subtitle {
+  font-size: 0.62rem;
+  color: #94a3b8;
+}
+.popover-status-badge {
+  margin-left: auto;
+  font-size: 0.6rem;
+  font-weight: 800;
+  background: rgba(16, 185, 129, 0.2);
+  color: #4ade80;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(74, 222, 128, 0.4);
+}
+.popover-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.68rem;
+}
+.popover-metric-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popover-metric-row .lbl {
+  color: #94a3b8;
+}
+.popover-metric-row .val {
+  font-weight: 600;
+}
+.popover-metric-row .val.ok {
+  color: #4ade80;
+}
+.popover-metric-row .val.mono {
+  font-family: monospace;
+  color: #cbd5e1;
+}
+.popover-metric-row .val.highlight {
+  color: #38bdf8;
+  font-family: monospace;
+}
+.popover-metric-row .val.accent {
+  color: #c084fc;
+}

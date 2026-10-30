@@ -5,7 +5,16 @@ using NpgsqlTypes;
 namespace HydroCloud.Admin;
 
 public record StationSignal(string StationId,string State,DateTimeOffset? LastTransmission=null,int? ExpectedIntervalMinutes=null,int DcpCount=0);
-public record AvailabilitySnapshot(DateTimeOffset CheckedAt,List<StationSignal> Stations);
+public record AvailabilitySnapshot(
+    DateTimeOffset CheckedAt,
+    List<StationSignal> Stations,
+    DateTimeOffset? LatestTransmission = null,
+    string? LatestDcp = null,
+    int TotalStations = 0,
+    int RecentCount = 0,
+    int DelayedCount = 0,
+    int OfflineCount = 0
+);
 
 // Short-lived TX health cache. Status comes from the ingestion-maintained
 // estatus_estaciones row and each DCP's expected transmission interval.
@@ -87,7 +96,15 @@ public sealed class StationAvailability(IConfiguration config,TimeProvider clock
                 var representative=health.Where(x=>x.State==state).OrderByDescending(x=>x.LastTransmission).FirstOrDefault();
                 return new StationSignal(entry.Key,state,health.Max(x=>x.LastTransmission),representative?.ExpectedIntervalMinutes,stationDcps.Count);
             }).OrderBy(x=>x.StationId).ToList();
-            cached=new(now,results);return cached;
+
+            var latestTx = dcpStates.Values.Where(x => x.LastTransmission.HasValue).MaxBy(x => x.LastTransmission)?.LastTransmission;
+            var latestDcp = dcpStates.FirstOrDefault(x => x.Value.LastTransmission == latestTx).Key;
+            var recentCount = results.Count(x => x.State == "recent");
+            var delayedCount = results.Count(x => x.State == "week");
+            var offlineCount = results.Count(x => x.State == "historical");
+
+            cached = new(now, results, latestTx, latestDcp, results.Count, recentCount, delayedCount, offlineCount);
+            return cached;
         }
         finally{gate.Release();}
     }

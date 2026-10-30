@@ -20,7 +20,49 @@
                 <span class="brand-subtitle">Análisis hidrometeorológico</span>
             </div>
         </a>
-        <span class="system-status"><span class="live-pulse-dot"></span> Operativo</span>
+        <div class="system-live-pill" id="system-live-pill" tabindex="0" role="button" aria-haspopup="true" aria-expanded="false" title="Telemetría en tiempo real del colector satelital (Click para ver detalles)">
+            <span class="live-pulse-radar">
+                <span class="radar-core"></span>
+                <span class="radar-wave"></span>
+            </span>
+            <span class="live-status-label" id="live-header-status-label">EN VIVO</span>
+            <span class="live-dot-sep">·</span>
+            <span class="live-tx-detail" id="global-live-last-tx">Sincronizando…</span>
+
+            <!-- Tooltip / Popover flotante deluxe -->
+            <div class="live-telemetry-popover" id="live-telemetry-popover" role="tooltip">
+                <div class="popover-head">
+                    <span class="pulse-em">📡</span>
+                    <div style="min-width:0;">
+                        <div class="popover-title">COLECTOR SATELITAL GOES</div>
+                        <div class="popover-subtitle">NOAA LRGS · TimescaleDB Cloud</div>
+                    </div>
+                    <span class="popover-status-badge" id="popover-badge-status">ACTIVO</span>
+                </div>
+                <div class="popover-metrics">
+                    <div class="popover-metric-row">
+                        <span class="lbl">Daemon colector:</span>
+                        <span class="val ok" id="pop-daemon-val">● En ejecución (24/7)</span>
+                    </div>
+                    <div class="popover-metric-row">
+                        <span class="lbl">Servidores LRGS:</span>
+                        <span class="val mono">eddn1 · eddn2 · eddn3</span>
+                    </div>
+                    <div class="popover-metric-row">
+                        <span class="lbl">Última TX recibida:</span>
+                        <span class="val highlight" id="pop-last-tx-val">—</span>
+                    </div>
+                    <div class="popover-metric-row">
+                        <span class="lbl">DCP satelital:</span>
+                        <span class="val mono" id="pop-last-dcp-val">—</span>
+                    </div>
+                    <div class="popover-metric-row">
+                        <span class="lbl">Sincronización mapa:</span>
+                        <span class="val accent">Auto-refresco cada 45s</span>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div class="nav-cyber-links">

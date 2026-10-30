@@ -558,10 +558,122 @@
   }
   const readJson=async(url,errorMessage)=>{const response=await fetch(url),data=await response.json();if(!response.ok)throw Error(data.error||errorMessage);return data;};
   let catalogAttempt=0,enrichmentStarted=false;
+  let lastAvailabilityData=null,lastAvailabilityCheckedTime=null,availabilityInterval=null,statusTickerInterval=null;
+
+  function formatTimeAgo(date){
+    if(!date)return '—';
+    const diffSec=Math.max(0,Math.floor((Date.now()-date.getTime())/1000));
+    if(diffSec<60)return diffSec+'s';
+    const diffMin=Math.floor(diffSec/60);
+    if(diffMin<60)return diffMin+' min';
+    const diffHours=Math.floor(diffMin/60);
+    return diffHours+'h '+(diffMin%60)+'m';
+  }
+
+  function updateLiveTelemetryHUD(data){
+    if(!data)return;
+    lastAvailabilityData=data;
+    lastAvailabilityCheckedTime=new Date(data.checkedAt);
+
+    const pill=$('system-live-pill');
+    const label=$('live-header-status-label');
+    const txBadge=$('global-live-last-tx');
+    const popoverBadge=$('popover-badge-status');
+    const popoverDaemon=$('pop-daemon-val');
+    const popoverLastTx=$('pop-last-tx-val');
+    const popoverLastDcp=$('pop-last-dcp-val');
+
+    const latestDate=data.latestTransmission?new Date(data.latestTransmission):null;
+    const minutesAgo=latestDate?Math.floor((Date.now()-latestDate.getTime())/60000):999;
+
+    if(txBadge){
+      txBadge.textContent=latestDate?('Última TX: hace '+formatTimeAgo(latestDate)):'Sincronizado';
+    }
+
+    if(pill){
+      pill.classList.remove('state-warning','state-danger');
+      if(minutesAgo<=20){
+        if(label)label.textContent='EN VIVO';
+        if(popoverBadge){popoverBadge.textContent='ACTIVO';popoverBadge.style.color='#4ade80';}
+        if(popoverDaemon){popoverDaemon.textContent='● En ejecución (24/7)';popoverDaemon.className='val ok';}
+      }else if(minutesAgo<=50){
+        pill.classList.add('state-warning');
+        if(label)label.textContent='RETRASO TX';
+        if(popoverBadge){popoverBadge.textContent='EN ESPERA';popoverBadge.style.color='#f59e0b';}
+        if(popoverDaemon){popoverDaemon.textContent='● En ejecución (esperando tramas)';popoverDaemon.className='val';}
+      }else{
+        pill.classList.add('state-danger');
+        if(label)label.textContent='SIN TELEMETRÍA';
+        if(popoverBadge){popoverBadge.textContent='ALERTA';popoverBadge.style.color='#ef4444';}
+        if(popoverDaemon){popoverDaemon.textContent='● Sin reportes recientes';popoverDaemon.className='val';}
+      }
+    }
+
+    if(popoverLastTx){
+      popoverLastTx.textContent=latestDate?(latestDate.toLocaleTimeString()+' (hace '+formatTimeAgo(latestDate)+')'):'—';
+    }
+    if(popoverLastDcp){
+      popoverLastDcp.textContent=data.latestDcp||'—';
+    }
+  }
+
+  function updateSignalStatusText(){
+    if(!lastAvailabilityCheckedTime)return;
+    const statusEl=$('signal-status');
+    if(statusEl){
+      statusEl.textContent='Semáforo TX: '+lastAvailabilityCheckedTime.toLocaleTimeString()+' (hace '+formatTimeAgo(lastAvailabilityCheckedTime)+') · intervalo esperado por DCP';
+    }
+    const latestDate=lastAvailabilityData?.latestTransmission?new Date(lastAvailabilityData.latestTransmission):null;
+    const txBadge=$('global-live-last-tx');
+    if(txBadge&&latestDate){
+      txBadge.textContent='Última TX: hace '+formatTimeAgo(latestDate);
+    }
+    const popoverLastTx=$('pop-last-tx-val');
+    if(popoverLastTx&&latestDate){
+      popoverLastTx.textContent=latestDate.toLocaleTimeString()+' (hace '+formatTimeAgo(latestDate)+')';
+    }
+  }
+
+  async function pollAvailability(silent=true){
+    try{
+      const data=await readJson('/Explore/Availability','No se pudo verificar el semáforo.');
+      for(const item of data.stations){
+        signals.set(item.stationId,item.state in signalColors?item.state:'unknown');
+        signalDetails.set(stationKey(item.stationId),item);
+      }
+      updateLiveTelemetryHUD(data);
+      updateSignalStatusText();
+      refreshSignals();
+      if(map&&markers&&mapFitted){
+        populateMap();
+      }
+    }catch(err){
+      if(!silent)console.warn('[Disponibilidad] Error en sondeo:', err);
+    }
+  }
+
   async function loadStationEnrichment(){
     if(enrichmentStarted)return;enrichmentStarted=true;
-    try{const data=await readJson('/Explore/Availability','No se pudo verificar el semáforo.');for(const item of data.stations){signals.set(item.stationId,item.state in signalColors?item.state:'unknown');signalDetails.set(stationKey(item.stationId),item);}$('signal-status').textContent='Semáforo TX actualizado: '+new Date(data.checkedAt).toLocaleTimeString()+' · intervalo esperado por DCP';refreshSignals();}
-    catch{$('signal-status').textContent='No se pudo verificar el semáforo. Gris no significa sin datos.';}
+    await pollAvailability(false);
+
+    // Configurar sondeo periódico cada 45 segundos y ticker cada 5s
+    if(!availabilityInterval){
+      availabilityInterval=setInterval(()=>pollAvailability(true),45000);
+    }
+    if(!statusTickerInterval){
+      statusTickerInterval=setInterval(updateSignalStatusText,5000);
+    }
+
+    const livePill=$('system-live-pill');
+    if(livePill&&!livePill.dataset.bound){
+      livePill.dataset.bound='true';
+      livePill.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        livePill.classList.toggle('popover-open');
+      });
+      document.addEventListener('click',()=>livePill.classList.remove('popover-open'));
+    }
+
     try{const rows=await readJson('/Explore/LatestLevels','Lecturas no disponibles.');latestLevels.clear();for(const row of rows)latestLevels.set(stationKey(row.stationId),row);levelsLoaded=true;levelsFailed=false;populateMap();}
     catch{levelsLoaded=true;levelsFailed=true;populateMap();}
     try{upstreamStations=await readJson('/Explore/UpstreamStations','Relaciones no disponibles.');mapFitted=false;populateMap();}
