@@ -30,6 +30,7 @@
             <a asp-controller="Stations" asp-action="Index" class="nav-cyber-link">Estaciones</a>
             <a asp-controller="Explore" asp-action="Visitors" class="nav-cyber-link">Auditoría</a>
         }
+        <div id="layout-auth-container" style="display:inline-flex;align-items:center;gap:10px;">
         @if (User.Identity?.IsAuthenticated == true)
         {
             <span style="color:var(--text-muted);font-size:0.85rem">👤 @User.Identity.Name</span>
@@ -41,6 +42,7 @@
         {
             <a asp-controller="Account" asp-action="Login" class="header-login">Acceso histórico</a>
         }
+        </div>
     </div>
 </header>
 

@@ -1362,16 +1362,26 @@ def load_estaciones_from_sql():
     # 1. Leer primero desde Aiven PostgreSQL (esquema dbo en la nube)
     pg_conn = None
     try:
-        print("[DB] Cargando catálogo de estaciones desde Aiven PostgreSQL (dbo.nv_goessgd)...")
+        print("[DB] Cargando catálogo de estaciones desde Aiven PostgreSQL (dbo.datosgoes + dbo.estacion)...")
         pg_conn = get_pg_conn()
         cur_pg = pg_conn.cursor()
         cur_pg.execute("""
-            SELECT idsatelital, minuto, nombre, idasignado, rangotransmision,
-                   decodificador, latitud, longitud, primeratransmision, intervalotransmision
-            FROM dbo.nv_goessgd
-            WHERE minuto IS NOT NULL
-              AND CAST(minuto AS INT) BETWEEN 0 AND 59
-              AND idsatelital IS NOT NULL
+            SELECT TRIM(g.idsatelital) AS idsatelital,
+                   SPLIT_PART(TRIM(g.primeratransmision), ':', 2)::int AS minuto,
+                   e.nombre,
+                   e.idasignado,
+                   g.rangotransmision,
+                   g.decodificador,
+                   e.latitud,
+                   e.longitud,
+                   g.primeratransmision,
+                   g.intervalotransmision
+            FROM dbo.datosgoes g
+            INNER JOIN dbo.estacion e ON g.idestacion = e.id
+            WHERE e.activo = TRUE
+              AND e.goes = TRUE
+              AND g.idsatelital IS NOT NULL
+              AND g.primeratransmision IS NOT NULL
         """)
         pg_rows = cur_pg.fetchall()
         cur_pg.close()
@@ -1534,33 +1544,47 @@ def load_sensores_from_sql():
                     (SELECT CASE WHEN cs.operador = '-' THEN -1 * cs.valorcota ELSE cs.valorcota END
                      FROM dbo.cotasensor cs
                      WHERE cs.idsensor = s.id
-                       AND (cs.fin = 0 OR cs.fin IS NULL)
+                       AND (cs.fin = FALSE OR cs.fin IS NULL)
                      ORDER BY cs.fecharegistro DESC
                      LIMIT 1), 0.0
-                ) AS valorcota
+                ) AS valorcota,
+                s.orden,
+                COALESCE(u.abreviatura, u.nombre, '') AS unidad,
+                COALESCE(ts.escalculada::int, 0) AS calculada,
+                (SELECT CASE WHEN COUNT(DISTINCT TRIM(g.decodificador)) = 1
+                   THEN MAX(TRIM(g.decodificador)) END
+                 FROM dbo.datosgoes g WHERE g.idestacion = e.id) AS decoder
             FROM dbo.sensor s
             INNER JOIN dbo.estacion e ON s.idestacion = e.id
             INNER JOIN dbo.tiposensor ts ON s.idtiposensor = ts.id
-            WHERE s.activo = 1 AND e.activo = 1
+            LEFT JOIN dbo.unidadmedida u ON s.idunidadmedida = u.id
+            WHERE s.activo = TRUE AND e.activo = TRUE
+            ORDER BY e.idasignado, s.orden, s.numerosensor
         """)
         pg_rows = cur_pg.fetchall()
         cur_pg.close()
         if pg_rows:
+            from gs300_catalog import GS300_NONWIRE_SENSORS
             sensores_por_estacion = {}
             for r in pg_rows:
                 id_asignado = str(r[0]).strip()
                 if id_asignado not in sensores_por_estacion:
                     sensores_por_estacion[id_asignado] = []
                 valor_cota = r[7] if r[7] is not None else 0.0
+                num_s = str(r[1]).strip().zfill(4)
                 sensores_por_estacion[id_asignado].append({
-                    "numero_sensor": str(r[1]).zfill(4),
+                    "numero_sensor": num_s,
                     "nombre": str(r[2]),
                     "decimales": int(r[3]),
                     "periodo": int(float(r[4])),
-                    "valor_minimo": float(r[5]),
-                    "valor_maximo": float(r[6]),
+                    "valor_minimo": float(r[5]) if r[5] is not None else -1000.0,
+                    "valor_maximo": float(r[6]) if r[6] is not None else 1000.0,
                     "valor_cota": float(valor_cota),
-                    "posiciones": []
+                    "posiciones": [],
+                    "orden": r[8],
+                    "unidad": str(r[9]).strip() if r[9] is not None else None,
+                    "calculada": 1 if num_s in GS300_NONWIRE_SENSORS.get(id_asignado, set()) else int(r[10] or 0),
+                    "decoder": r[11]
                 })
             print(f"[SENSORES AIVEN] Cargados {sum(len(v) for v in sensores_por_estacion.values())} sensores desde la nube")
             return sensores_por_estacion
@@ -3822,6 +3846,13 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
 
                 meta = decode_domsat_header(header)
                 if not meta or meta.get("dcp", "").upper() != dcp_id.upper(): return False
+
+                # Avisos del servidor LRGS ("Missing message from ...", buffer vacío):
+                # no son telemetría; no se guardan ni cuentan como rechazo de decoder.
+                from telemetry_decoders import payload_family
+                if payload and payload_family(payload) == 'notice':
+                    print(f"[SIN MENSAJE] {dcp_id}: aviso del servidor {host}, sin datos para decodificar")
+                    return False
                 
                 guardar_header_goes(dcp_id, meta, raw_header, raw_payload)
 
@@ -3891,6 +3922,7 @@ def fetch_from_host(host: str, dcp_id: str, nombre: str, since: str = "now - 2 h
 
                     except Exception as e:
                         print(f"[RECHAZADO] {dcp_id}: {e}")
+                        _guardar_trama_rechazada(dcp_id, id_asignado, decoder_type, payload, str(e), host, meta.get("timestamp"))
                         return False
 
                 log_to_pg(dcp_id, True, meta["timestamp"], host)
@@ -3963,6 +3995,116 @@ def fetch_messages_for_dcp_wrapper(dcp_id):
         print(f"[ERROR WRAPPER] {dcp_id}: {e}")
         import traceback
         traceback.print_exc()
+
+
+# ==================== TRAMAS RECHAZADAS ====================
+_tramas_rechazadas_listo = False
+
+def _guardar_trama_rechazada(dcp_id, id_asignado, decoder, payload, motivo, host, ts_msg):
+    """Conserva la trama cruda y el motivo del rechazo para revisarla o reprocesarla.
+    Nunca debe interrumpir el flujo principal."""
+    global _tramas_rechazadas_listo
+    conn = None
+    try:
+        from telemetry_decoders import payload_family
+        familia = payload_family(payload)
+        conn = get_pg_conn()
+        cur = conn.cursor()
+        if not _tramas_rechazadas_listo:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS public.tramas_rechazadas (
+                    id BIGSERIAL PRIMARY KEY,
+                    recibido TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                    ts_mensaje TIMESTAMPTZ,
+                    dcp_id TEXT NOT NULL,
+                    id_asignado TEXT,
+                    decoder TEXT,
+                    familia TEXT,
+                    motivo TEXT,
+                    host TEXT,
+                    payload TEXT
+                )""")
+            cur.execute("CREATE INDEX IF NOT EXISTS ix_tramas_rech_dcp ON public.tramas_rechazadas (dcp_id, recibido DESC)")
+            _tramas_rechazadas_listo = True
+        cur.execute("""
+            INSERT INTO public.tramas_rechazadas
+                (ts_mensaje, dcp_id, id_asignado, decoder, familia, motivo, host, payload)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (ts_msg, dcp_id, id_asignado, decoder, familia, motivo[:500], host,
+             payload.decode('latin-1', errors='replace') if isinstance(payload, (bytes, bytearray)) else str(payload)))
+        conn.commit()
+        cur.close()
+    except Exception as ex:
+        print(f"[TRAMAS-RECHAZADAS] No se pudo guardar {dcp_id}: {ex}")
+        try:
+            if conn:
+                conn.rollback()
+        except Exception:
+            pass
+    finally:
+        if conn:
+            release_pg_conn(conn)
+
+
+# ==================== REINTENTO DE TX PERDIDAS (HILO INDEPENDIENTE) ====================
+# Rutina separada del scheduler principal: cada RETRY_SCAN_SECONDS revisa
+# public.estatus_estaciones y, para las estaciones con fecha_ultima_tx mayor a
+# RETRY_DELAY_MINUTES, intenta una descarga nueva (ventana de RETRY_WINDOW_HOURS).
+RETRY_SCAN_SECONDS = 300
+RETRY_DELAY_MINUTES = 65
+RETRY_MAX_DELAY_HOURS = 48       # más allá de esto se deja a la recuperación manual
+RETRY_COOLDOWN_SECONDS = 1800    # no reintentar la misma estación más seguido que esto
+RETRY_WINDOW_HOURS = 3
+RETRY_WORKERS = 6                # descargas simultáneas (sin saturar LRGS ni el pool PG)
+_retry_last_attempt = {}
+
+def _retry_missed_transmissions_loop():
+    time.sleep(30)  # dar unos segundos para que el scheduler principal cargue el catálogo
+    print("[RETRY-TX] Rutina de reintento de TX perdidas activa")
+    while True:
+        conn = None
+        try:
+            if _scheduler_running.is_set():
+                conn = get_pg_conn()
+                if conn:
+                    cur = conn.cursor()
+                    cur.execute("""
+                        SELECT dcp_id
+                        FROM public.estatus_estaciones
+                        WHERE fecha_ultima_tx < NOW() - make_interval(mins := %s)
+                          AND fecha_ultima_tx > NOW() - make_interval(hours := %s)
+                        ORDER BY fecha_ultima_tx DESC
+                    """, (RETRY_DELAY_MINUTES, RETRY_MAX_DELAY_HOURS))
+                    pendientes = [r[0] for r in cur.fetchall()]
+                    cur.close()
+                    release_pg_conn(conn)
+                    conn = None
+                    now = time.time()
+                    candidatas = [d for d in pendientes
+                                  if d in ESTACIONES
+                                  and now - _retry_last_attempt.get(d, 0) >= RETRY_COOLDOWN_SECONDS]
+                    print(f"[RETRY-TX] Escaneo: {len(pendientes)} con retraso > {RETRY_DELAY_MINUTES} min, "
+                          f"{len(candidatas)} a reintentar ({RETRY_WORKERS} en paralelo)")
+
+                    def _reintentar(dcp_id):
+                        _retry_last_attempt[dcp_id] = time.time()
+                        try:
+                            print(f"[RETRY-TX] {dcp_id}: TX perdida, reintentando descarga ({RETRY_WINDOW_HOURS}h)")
+                            fetch_messages_for_dcp(dcp_id, since=f"now - {RETRY_WINDOW_HOURS} hours", multi=True)
+                        except Exception as e:
+                            print(f"[RETRY-TX] Error {dcp_id}: {e}")
+
+                    if candidatas:
+                        from concurrent.futures import ThreadPoolExecutor
+                        with ThreadPoolExecutor(max_workers=RETRY_WORKERS, thread_name_prefix="retry-tx") as pool:
+                            list(pool.map(_reintentar, candidatas))
+                        print(f"[RETRY-TX] Ciclo completo: {len(candidatas)} estaciones reintentadas")
+        except Exception as e:
+            print(f"[RETRY-TX] Error en ciclo: {e}")
+        finally:
+            if conn:
+                release_pg_conn(conn)
+        time.sleep(RETRY_SCAN_SECONDS)
 
 
 # ==================== RECUPERACIÓN AUTOMÁTICA DE HUECOS ====================
@@ -5583,6 +5725,226 @@ def api_query_data():
     })
 
 
+# ==================== ANALÍTICA DE LLUVIA POR CUENCA Y GRUPOS ====================
+@_monitor_app.route('/api/cuencas', methods=['GET'])
+def api_lista_cuencas():
+    """Retorna el catálogo de cuencas oficiales con su conteo de estaciones activas."""
+    conn = get_pg_conn()
+    if not conn:
+        return jsonify({"error": "Sin conexión a Base de Datos"}), 500
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT c.id, c.nombre, COUNT(e.id) as num_estaciones
+            FROM dbo.cuenca c
+            JOIN dbo.estacion e ON e.idcuenca = c.id
+            WHERE e.activo = TRUE AND c.activo = TRUE AND c.nombre != 'Indefinida'
+            GROUP BY c.id, c.nombre
+            ORDER BY num_estaciones DESC, c.nombre ASC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        resultado = [{"id": r[0], "nombre": r[1], "num_estaciones": r[2]} for r in rows]
+        return jsonify({"status": "ok", "total": len(resultado), "cuencas": resultado})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_pg_conn(conn)
+
+
+@_monitor_app.route('/api/cuenca/lluvia_horaria', methods=['GET', 'POST'])
+def api_cuenca_lluvia_horaria():
+    """
+    Calcula la lluvia horaria individual de cada estación y el promedio horario
+    del grupo o cuenca para las últimas N horas.
+    Parámetros (Query string o JSON):
+      - cuenca: id o nombre de la cuenca (ej: 'Lerma-Santiago' o UUID)
+      - estaciones: lista o string de estaciones separadas por coma
+      - horas: ventana de tiempo hacia atrás en horas (default: 24, max: 168)
+      - tz_offset: desfase horario en horas respecto a UTC (default: -6)
+    """
+    from collections import defaultdict
+    data = request.get_json(silent=True) or {}
+    cuenca_param = request.args.get('cuenca') or data.get('cuenca')
+    estaciones_param = request.args.get('estaciones') or data.get('estaciones')
+    nombre_param = request.args.get('nombre') or data.get('nombre')
+    grupo_id_param = request.args.get('grupo_id') or data.get('grupo_id')
+    horas = request.args.get('horas', data.get('horas', 24), type=int)
+    tz_offset = request.args.get('tz_offset', data.get('tz_offset', -6), type=int)
+
+    if horas > 168:
+        horas = 168
+    if horas < 1:
+        horas = 1
+
+    if not cuenca_param and not estaciones_param and not grupo_id_param:
+        return jsonify({"error": "Debe especificar 'cuenca', 'grupo_id' o lista de 'estaciones'"}), 400
+
+    conn = get_pg_conn()
+    if not conn:
+        return jsonify({"error": "Sin conexión a Base de Datos"}), 500
+
+    try:
+        cur = conn.cursor()
+        where_sql = ""
+        params = []
+        nombre_grupo = "Personalizado"
+
+        if grupo_id_param:
+            cur.execute("SELECT nombre, estaciones FROM dbo.grupos_personalizados WHERE id::text = %s", (str(grupo_id_param).strip(),))
+            g_row = cur.fetchone()
+            if g_row:
+                nombre_grupo = g_row[0]
+                lista_est = [str(s).strip().upper() for s in (g_row[1] or []) if str(s).strip()]
+                where_sql = "e.idasignado = ANY(%s) AND e.activo = TRUE"
+                params.append(lista_est)
+            else:
+                cur.close()
+                return jsonify({"error": f"Grupo personalizado '{grupo_id_param}' no encontrado"}), 404
+        elif cuenca_param:
+            cuenca_param = str(cuenca_param).strip()
+            cur.execute("""
+                SELECT id, nombre FROM dbo.cuenca 
+                WHERE id = %s OR nombre ILIKE %s
+                LIMIT 1
+            """, (cuenca_param, f"%{cuenca_param}%"))
+            c_row = cur.fetchone()
+            if c_row:
+                cuenca_id, nombre_grupo = c_row
+                where_sql = "e.idcuenca = %s AND e.activo = TRUE"
+                params.append(cuenca_id)
+            else:
+                cur.close()
+                return jsonify({"error": f"Cuenca '{cuenca_param}' no encontrada"}), 404
+        elif estaciones_param:
+            if isinstance(estaciones_param, str):
+                lista_est = [s.strip().upper() for s in estaciones_param.split(',') if s.strip()]
+            else:
+                lista_est = [str(s).strip().upper() for s in estaciones_param if str(s).strip()]
+            if not lista_est:
+                cur.close()
+                return jsonify({"error": "Lista de estaciones vacía"}), 400
+            where_sql = "e.idasignado = ANY(%s) AND e.activo = TRUE"
+            params.append(lista_est)
+            nombre_grupo = str(nombre_param).strip() if nombre_param else f"Grupo personalizado ({len(lista_est)} estaciones)"
+
+        cur.execute(f"""
+            SELECT e.idasignado, e.nombre, g.idsatelital
+            FROM dbo.estacion e
+            LEFT JOIN dbo.datosgoes g ON g.idestacion = e.id
+            WHERE {where_sql}
+            ORDER BY e.nombre
+        """, params)
+        est_rows = cur.fetchall()
+        if not est_rows:
+            cur.close()
+            return jsonify({"error": "No se encontraron estaciones activas para este grupo"}), 404
+
+        est_dict = {r[0]: {"nombre": r[1], "dcp_id": r[2]} for r in est_rows}
+        ids_asignados = list(est_dict.keys())
+
+        # Ventana de tiempo
+        tz_local = datetime.timezone(datetime.timedelta(hours=tz_offset))
+        ahora_utc = datetime.datetime.now(datetime.timezone.utc)
+        inicio_utc = ahora_utc - datetime.timedelta(hours=horas)
+
+        # Consulta analítica de lluvia horaria
+        cur.execute("""
+            SELECT 
+                date_trunc('hour', ts) as hora_utc,
+                id_asignado,
+                variable,
+                SUM(valor) as suma_val,
+                MAX(valor) - MIN(valor) as delta_val
+            FROM dcp_datos
+            WHERE id_asignado = ANY(%s)
+              AND ts >= %s AND ts <= %s
+              AND valido = TRUE
+              AND (variable ILIKE '%%precipitac%%' OR variable ILIKE '%%lluvia%%')
+            GROUP BY 1, 2, 3
+            ORDER BY 1 ASC
+        """, (ids_asignados, inicio_utc, ahora_utc))
+        lluvia_raw = cur.fetchall()
+        cur.close()
+
+        lluvia_matriz = defaultdict(lambda: defaultdict(float))
+        for hora_utc, id_asig, var, suma_val, delta_val in lluvia_raw:
+            val = suma_val if 'acumulada' not in str(var).lower() else max(0.0, delta_val or 0.0)
+            if val is not None and float(val) > lluvia_matriz[hora_utc][id_asig]:
+                lluvia_matriz[hora_utc][id_asig] = round(float(val), 2)
+
+        # Eje de tiempo continuo (hora por hora)
+        serie_horas = []
+        hora_cursor = inicio_utc.replace(minute=0, second=0, microsecond=0)
+        hora_fin = ahora_utc.replace(minute=0, second=0, microsecond=0)
+        while hora_cursor <= hora_fin:
+            serie_horas.append(hora_cursor)
+            hora_cursor += datetime.timedelta(hours=1)
+
+        estaciones_out = {}
+        for id_asig, meta in est_dict.items():
+            estaciones_out[id_asig] = {
+                "nombre": meta["nombre"],
+                "dcp_id": meta["dcp_id"],
+                "serie_horaria": [],
+                "acumulado_total": 0.0
+            }
+
+        promedio_cuenca_serie = []
+        max_cuenca_serie = []
+        horas_labels = []
+
+        for h in serie_horas:
+            h_str = h.astimezone(tz_local).strftime("%Y-%m-%d %H:00")
+            horas_labels.append(h_str)
+            valores_hora = []
+
+            for id_asig in ids_asignados:
+                mm = lluvia_matriz[h].get(id_asig, 0.0)
+                estaciones_out[id_asig]["serie_horaria"].append(mm)
+                estaciones_out[id_asig]["acumulado_total"] = round(estaciones_out[id_asig]["acumulado_total"] + mm, 2)
+                valores_hora.append(mm)
+
+            prom_h = round(sum(valores_hora) / len(valores_hora), 2) if valores_hora else 0.0
+            max_h = round(max(valores_hora), 2) if valores_hora else 0.0
+            promedio_cuenca_serie.append(prom_h)
+            max_cuenca_serie.append(max_h)
+
+        acum_promedio_total = round(sum(promedio_cuenca_serie), 2)
+
+        return jsonify({
+            "status": "ok",
+            "cuenca": nombre_grupo,
+            "total_estaciones": len(ids_asignados),
+            "periodo_horas": horas,
+            "zona_horaria": f"UTC{tz_offset:+03d}:00",
+            "horas": horas_labels,
+            "promedio_cuenca_por_hora": promedio_cuenca_serie,
+            "maximo_cuenca_por_hora": max_cuenca_serie,
+            "acumulado_promedio_cuenca": acum_promedio_total,
+            "estaciones": estaciones_out
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        release_pg_conn(conn)
+
+
+@_monitor_app.route('/api/reload', methods=['GET', 'POST'])
+def api_reload_catalog():
+    """Recarga inmediata del catálogo de estaciones y sensores desde PostgreSQL."""
+    try:
+        recargar_configuracion()
+        return jsonify({
+            "success": True,
+            "message": "Catálogo recargado correctamente",
+            "estaciones_activas": len(ESTACIONES),
+            "sensores_estaciones": len(SENSORES)
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 def main():
     _print_public_ip()
     generar_reporte_estado_bd(force=True)
@@ -5631,6 +5993,9 @@ def main():
     monitor_port = config.getint('settings', 'monitor_port', fallback=5555)
     monitor_thread = threading.Thread(target=_iniciar_monitor_web, args=(monitor_port,), daemon=True)
     monitor_thread.start()
+
+    # Rutina independiente de reintento de TX perdidas
+    threading.Thread(target=_retry_missed_transmissions_loop, name="retry-tx", daemon=True).start()
 
     print("[INFO] Scheduler activo...")
     _consecutive_errors = 0

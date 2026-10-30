@@ -40,6 +40,22 @@ class RepairOracleSummariesTests(unittest.TestCase):
         self.assertLess(disable_dml, hourly_merge)
         self.assertLess(disable_query, hourly_merge)
 
+    def test_daily_rebuild_uses_the_hourly_midnight_boundary(self):
+        self.assertIn(
+            "TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)) AS fecha",
+            repair.DAILY_MERGE,
+        )
+        self.assertIn(
+            "GROUP BY TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)), dcp_id, sensor_id",
+            repair.DAILY_MERGE,
+        )
+        self.assertIn("WHERE ts >= :start_ts AND ts < :end_ts", repair.DAILY_MERGE)
+        source = inspect.getsource(repair.main)
+        self.assertIn(
+            "GROUP BY TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)), dcp_id, sensor_id",
+            source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -60,7 +60,7 @@ DAILY_MERGE = """
 MERGE /*+ NO_PARALLEL(t) */ INTO resumen_diario t
 USING (
     SELECT /*+ NO_PARALLEL(dcp_datos) */
-        TRUNC(SYS_EXTRACT_UTC(ts)) AS fecha,
+        TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)) AS fecha,
         dcp_id,
         sensor_id,
         MAX(id_asignado) AS id_asignado,
@@ -74,7 +74,7 @@ USING (
         SUM(valor) AS acumulado
     FROM dcp_datos
     WHERE ts >= :start_ts AND ts < :end_ts AND valido = 1
-    GROUP BY TRUNC(SYS_EXTRACT_UTC(ts)), dcp_id, sensor_id
+    GROUP BY TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)), dcp_id, sensor_id
 ) src
 ON (t.fecha = src.fecha AND t.dcp_id = src.dcp_id AND t.sensor_id = src.sensor_id)
 WHEN MATCHED THEN UPDATE SET
@@ -175,10 +175,10 @@ def main() -> None:
         """, binds)
         expected_daily = scalar(cur, """
             SELECT COUNT(*) FROM (
-                SELECT TRUNC(SYS_EXTRACT_UTC(ts)), dcp_id, sensor_id
+                SELECT TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)), dcp_id, sensor_id
                 FROM dcp_datos
                 WHERE ts >= :start_ts AND ts < :end_ts AND valido = 1
-                GROUP BY TRUNC(SYS_EXTRACT_UTC(ts)), dcp_id, sensor_id
+                GROUP BY TRUNC(SYS_EXTRACT_UTC(ts) - (1/1440)), dcp_id, sensor_id
             )
         """, binds)
         print({

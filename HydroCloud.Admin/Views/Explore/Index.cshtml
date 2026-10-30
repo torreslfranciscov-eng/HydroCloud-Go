@@ -8,31 +8,64 @@
 
     <!-- SECCIÓN 1: MAPA GIS Y SALUD OPERATIVA -->
     <section class="cyber-card map-card">
-        <div class="map-commandbar">
-            <h2 class="cyber-card-title">
-                Red hidrométrica
-            </h2>
+        <!-- FILA 1: TÍTULO Y SEMÁFOROS DE SALUD OPERATIVA -->
+        <div class="map-header-row">
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;min-width:0;">
+                <h2 class="cyber-card-title">Red hidrometeorológica</h2>
 
-            <div class="map-health-legend" aria-label="Disponibilidad de estaciones">
-                <span title="Última TX dentro del intervalo esperado"><i class="signal recent"></i>A tiempo <b id="count-recent">—</b></span>
-                <span title="Última TX excede el intervalo esperado"><i class="signal week"></i>Retrasada <b id="count-week">—</b></span>
-                <span title="Sin TX dentro del margen operativo"><i class="signal historical"></i>Fuera de línea <b id="count-historical">—</b></span>
-                <span title="DCP configurado sin historial de TX"><i class="signal empty"></i>Sin TX <b id="count-empty">—</b></span>
-                <span title="Sin DCP vinculado o estado no verificable"><i class="signal unknown"></i>Sin verificar <b id="count-unknown">—</b></span>
-                <span title="EsPresa=1 o nombre con la palabra PRESA"><span class="dam-key" aria-hidden="true"><span>≋</span></span> Presas <b id="count-dams">—</b></span>
-                <span title="Relaciones hidrológicas registradas en DB_ATLAS"><span class="upstream-key" aria-hidden="true"></span> Aguas arriba</span>
+                <div class="map-health-legend" aria-label="Disponibilidad de estaciones">
+                    <span title="Última TX dentro del intervalo esperado"><i class="signal recent"></i>A tiempo <b id="count-recent">—</b></span>
+                    <span title="Última TX excede el intervalo esperado"><i class="signal week"></i>Retrasada <b id="count-week">—</b></span>
+                    <span title="Sin TX dentro del margen operativo"><i class="signal historical"></i>Fuera de línea <b id="count-historical">—</b></span>
+                    <span title="DCP configurado sin historial de TX"><i class="signal empty"></i>Sin TX <b id="count-empty">—</b></span>
+                    <span title="Sin DCP vinculado o estado no verificable"><i class="signal unknown"></i>Sin verificar <b id="count-unknown">—</b></span>
+                    <span title="EsPresa=1 o nombre con la palabra PRESA"><span class="dam-key" aria-hidden="true"><span>≋</span></span> Presas <b id="count-dams">—</b></span>
+                    <span title="Relaciones hidrológicas registradas en DB_ATLAS"><span class="upstream-key" aria-hidden="true"></span> Aguas arriba</span>
+                </div>
             </div>
 
+            <div id="saas-user-bar" class="saas-user-bar">
+                <button id="btn-saas-auth-trigger" class="btn-cyber-secondary" type="button" style="height:28px;padding:0 12px;font-size:0.72rem;font-weight:750;white-space:nowrap;">
+                    👤 Entrar / Registro Gratis
+                </button>
+            </div>
+        </div>
+
+        <!-- FILA 2: CONTROLES DE VISTA, FILTRO DE CUENCA Y ACCIONES -->
+        <div class="map-commandbar">
             <div class="map-filter-control">
                 <label for="map-filter">Vista</label>
                 <select id="map-filter" class="cyber-select">
                     <option value="all" selected>Todas las estaciones</option>
+                    <option value="user_stations">⭐ Mis Estaciones GOES</option>
                     <option value="dams">Presas (campo o nombre)</option>
                     <option value="recent">🟢 TX a tiempo</option>
                     <option value="week">🟡 TX retrasada</option>
                     <option value="historical">🔴 Fuera de línea</option>
                     <option value="empty">⚫ Sin historial de TX</option>
                 </select>
+            </div>
+
+            <div class="map-filter-control cuenca-filter-control">
+                <label for="cuenca-filter">Cuenca</label>
+                <select id="cuenca-filter" class="cyber-select">
+                    <option value="">Todas las cuencas (Catálogo completo)</option>
+                </select>
+            </div>
+
+            <div class="map-cuenca-actions">
+                <button id="btn-open-user-stations" class="btn-cyber-primary" type="button" title="Gestionar y dar de alta mis estaciones GOES" style="height:32px;padding:0 12px;font-size:0.75rem;font-weight:750;display:inline-flex;align-items:center;gap:6px;border-radius:6px;">
+                    <span>📡</span> Mis Estaciones <span id="user-stations-badge-count" class="saas-badge" style="background:#0284c7;color:#fff;font-size:0.62rem;padding:1px 5px;display:none;">0/1</span>
+                </button>
+                <button id="btn-cuenca-lluvia" class="btn-cyber-cuenca" type="button" title="Analizar lluvia horaria y promedio">
+                    🌧️ Lluvia en cuenca
+                </button>
+                <button id="btn-armar-grupo" class="btn-cyber-gold" type="button" title="Arma un grupo personalizado de estaciones">
+                    ✨ ¡Armar mi cuenca o grupo!
+                </button>
+                <button id="btn-open-3d-globe" class="btn-cyber-deluxe" type="button" title="Constelación Satelital NOAA GOES & Red Terrestre en 3D (Three.js)">
+                    🛰️ Órbita GOES 3D
+                </button>
             </div>
         </div>
 
@@ -92,6 +125,9 @@
             </fieldset>
             <button id="open-query-dialog" class="query-map-launcher" type="button">
                 <span aria-hidden="true">⌕</span> Consultar estación
+            </button>
+            <button id="open-cuenca-launcher" class="query-map-launcher cuenca-map-launcher" type="button" title="Abrir análisis de lluvia por cuenca o grupo">
+                <span aria-hidden="true">🌧️</span> Lluvia por cuenca
             </button>
         </div>
 
@@ -171,6 +207,47 @@
         </div>
     </section>
 
+    <!-- ESTADO DE CARGA PROFESIONAL DE TELEMETRÍA Y OBSERVACIONES -->
+    <div id="query-loading" class="query-loading-panel" hidden>
+        <div class="query-loading-card">
+            <div class="query-loading-top">
+                <div class="query-loading-radar-orbit" aria-hidden="true">
+                    <div class="radar-ping"></div>
+                    <div class="radar-core">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"/>
+                            <path d="M12 6a6 6 0 1 0 6 6 6 6 0 0 0-6-6zm0 8a2 2 0 1 1 2-2 2 2 0 0 1-2 2z"/>
+                        </svg>
+                    </div>
+                </div>
+                <div class="query-loading-text">
+                    <h3 class="query-loading-title">Cargando datos hidrometeorológicos…</h3>
+                    <p class="query-loading-sub">Sincronizando series de tiempo, sensores y telemetría satelital</p>
+                </div>
+            </div>
+
+            <!-- SKELETON PREVIEW PARA LA GRÁFICA Y KPIs -->
+            <div class="query-skeleton-container" aria-hidden="true">
+                <div class="skeleton-toolbar">
+                    <div class="skeleton-shimmer skeleton-pill w-120"></div>
+                    <div class="skeleton-shimmer skeleton-pill w-80"></div>
+                </div>
+                <div class="skeleton-chart-box">
+                    <div class="skeleton-chart-lines">
+                        <div class="chart-wave wave-1"></div>
+                        <div class="chart-wave wave-2"></div>
+                    </div>
+                </div>
+                <div class="skeleton-kpis">
+                    <div class="skeleton-shimmer skeleton-kpi-item"></div>
+                    <div class="skeleton-shimmer skeleton-kpi-item"></div>
+                    <div class="skeleton-shimmer skeleton-kpi-item"></div>
+                    <div class="skeleton-shimmer skeleton-kpi-item"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- SECCIÓN 3: RESULTADOS, HIDROGRAMA Y TABLA -->
     <div id="query-results" hidden>
         <section id="chart-workspace-card" class="cyber-card chart-workspace">
@@ -230,10 +307,749 @@
       </div>
     </dialog>
 
+    <!-- MODAL 2: ANALÍTICA DE LLUVIA POR CUENCA / GRUPO -->
+    <dialog id="cuenca-dialog" class="query-dialog cuenca-dialog" aria-labelledby="cuenca-dialog-title">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Monitoreo Hidrometeorológico por Cuenca</span>
+                <h2 id="cuenca-dialog-title">🌧️ Lluvia Horaria y Promedio de Cuenca</h2>
+            </div>
+            <button id="close-cuenca-dialog" type="button" aria-label="Cerrar modal de cuenca">×</button>
+        </header>
+        <div class="query-dialog-body cuenca-dialog-body">
+            <!-- Barra de control de cuenca -->
+            <section class="cyber-card cuenca-params-card">
+                <div class="cuenca-toolbar-grid">
+                    <div class="cyber-field">
+                        <label for="cuenca-dialog-select">Cuenca o Grupo</label>
+                        <select id="cuenca-dialog-select" class="cyber-select">
+                            <option value="">Selecciona una cuenca...</option>
+                        </select>
+                    </div>
+                    <div class="cyber-field">
+                        <label for="cuenca-horas-select">Ventana de tiempo</label>
+                        <select id="cuenca-horas-select" class="cyber-select">
+                            <option value="12">Últimas 12 horas</option>
+                            <option value="24" selected>Últimas 24 horas</option>
+                            <option value="48">Últimas 48 horas</option>
+                            <option value="72">Últimas 72 horas</option>
+                            <option value="168">Últimos 7 días</option>
+                        </select>
+                    </div>
+                    <div class="cuenca-actions">
+                        <button id="btn-cuenca-consultar" class="btn-cyber-primary" type="button">
+                            <span aria-hidden="true">⌕</span> Actualizar análisis
+                        </button>
+                        <button id="btn-cuenca-abrir-creador" class="btn-cyber-gold" type="button">
+                            ✨ ¡Armar mi cuenca o grupo!
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- KPIs de la Cuenca -->
+            <div class="cuenca-kpi-grid">
+                <div class="kpi-card-cyber">
+                    <span>Lluvia Promedio Acumulada</span>
+                    <strong id="kpi-cuenca-promedio-val">— mm</strong>
+                    <small>Promedio total de la cuenca</small>
+                </div>
+                <div class="kpi-card-cyber">
+                    <span>Pico Máximo Horario</span>
+                    <strong id="kpi-cuenca-maximo-val">— mm/h</strong>
+                    <small id="kpi-cuenca-maximo-sub">—</small>
+                </div>
+                <div class="kpi-card-cyber">
+                    <span>Estaciones con Lluvia</span>
+                    <strong id="kpi-cuenca-estaciones-val">—</strong>
+                    <small id="kpi-cuenca-estaciones-sub">de 0 estaciones evaluadas</small>
+                </div>
+                <div class="kpi-card-cyber">
+                    <span>Zona Horaria / Referencia</span>
+                    <strong id="kpi-cuenca-tz-val">UTC-06:00</strong>
+                    <small id="kpi-cuenca-horas-sub">Últimas 24 horas continuas</small>
+                </div>
+            </div>
+
+            <!-- Gráfica de Cuenca: Promedio vs Máximo -->
+            <section class="cyber-card cuenca-chart-card">
+                <div class="chart-toolbar">
+                    <div>
+                        <span class="chart-eyebrow">Hietograma Colectivo</span>
+                        <h3 id="cuenca-chart-heading">Distribución Horaria de Precipitación</h3>
+                    </div>
+                    <div class="cuenca-chart-legend">
+                        <span><i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#0284c7;vertical-align:middle;margin-right:4px;"></i> Promedio Cuenca (mm)</span>
+                        <span><i style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f59e0b;vertical-align:middle;margin-right:4px;"></i> Máximo Horario (mm)</span>
+                    </div>
+                </div>
+                <div class="chart-canvas" style="height:300px;">
+                    <div id="cuenca-series-chart" style="width:100%;height:100%;"></div>
+                </div>
+            </section>
+
+            <!-- Desglose de Estaciones -->
+            <section class="cyber-card cuenca-stations-card">
+                <div class="chart-toolbar">
+                    <div>
+                        <span class="chart-eyebrow">Detalle Estación por Estación</span>
+                        <h3>Acumulados y Estado de la Red</h3>
+                    </div>
+                    <div class="cyber-field" style="max-width:240px;">
+                        <input id="cuenca-stations-filter" class="cyber-input" type="text" placeholder="Filtrar estaciones..." style="height:30px;font-size:0.75rem;" />
+                    </div>
+                </div>
+                <div class="cuenca-table-scroll">
+                    <table class="cuenca-table" id="cuenca-stations-table">
+                        <thead>
+                            <tr>
+                                <th>Clave / DCP</th>
+                                <th>Estación</th>
+                                <th>Lluvia Acumulada</th>
+                                <th>Nivel Relativo</th>
+                                <th>Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuenca-stations-tbody">
+                            <tr><td colspan="5" style="text-align:center;padding:20px;color:#70868f;">Cargando estaciones de la cuenca...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 3: ¡ARMAR MI CUENCA O GRUPO! (FREEMIUM / SAAS) -->
+    <dialog id="grupo-modal-dialog" class="query-dialog grupo-modal-dialog" aria-labelledby="grupo-modal-title">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Personalización de Red Hidrológica</span>
+                <h2 id="grupo-modal-title">✨ ¡Armar mi cuenca o grupo de estaciones!</h2>
+            </div>
+            <button id="close-grupo-dialog" type="button" aria-label="Cerrar creador de grupo">×</button>
+        </header>
+        <div class="query-dialog-body grupo-dialog-body">
+            <!-- Freemium Banner -->
+            <div class="saas-banner">
+                <div class="saas-banner-icon">🌧️✨</div>
+                <div class="saas-banner-content">
+                    <div class="saas-badge">MODALIDAD GRATUITA · HASTA 3 GRUPOS</div>
+                    <h3>Arma grupos a tu medida y obtén lluvia horaria promedio en tiempo real</h3>
+                    <p>Crea grupos para monitorear presas en cascada, municipios o subcuencas de tu interés. Con tu cuenta gratuita puedes registrar y guardar <strong>hasta 3 grupos</strong>. ¿Necesitas más de 3 grupos o alertas de lluvia por correo/WhatsApp? Suscríbete a la modalidad Pro por solo <strong>$100 MXN / mes</strong>.</p>
+                </div>
+            </div>
+
+            <!-- Constructor de grupo -->
+            <div class="grupo-builder-grid">
+                <!-- Columna Izquierda: Parámetros del Grupo -->
+                <div class="cyber-card grupo-form-card">
+                    <h3 style="margin:0 0 12px;font-size:0.95rem;color:#123b47;">1. Datos del Grupo</h3>
+                    <div class="cyber-field" style="margin-bottom:12px;">
+                        <label for="nuevo-grupo-nombre">Nombre de tu cuenca o grupo</label>
+                        <input id="nuevo-grupo-nombre" class="cyber-input" type="text" placeholder="Ej. Presas Sistema Cutzamala, Cuenca Alta..." required />
+                    </div>
+                    <div class="cyber-field" style="margin-bottom:12px;">
+                        <label for="grupo-cargar-cuenca">Cargar como base desde una cuenca existente (opcional):</label>
+                        <select id="grupo-cargar-cuenca" class="cyber-select">
+                            <option value="">Selecciona para rellenar estaciones...</option>
+                        </select>
+                    </div>
+
+                    <div class="grupo-selection-stats">
+                        <span>Estaciones seleccionadas:</span>
+                        <b id="builder-count-selected">0</b>
+                    </div>
+
+                    <div class="grupo-actions-panel">
+                        <button id="btn-probar-grupo-lluvia" class="btn-cyber-primary" type="button" style="width:100%;margin-bottom:8px;">
+                            🌧️ Calcular Lluvia de este Grupo Ahora
+                        </button>
+                        <button id="btn-guardar-grupo-db" class="btn-cyber-gold" type="button" style="width:100%;margin-bottom:8px;">
+                            💾 Guardar mi Grupo (1 de 3 Gratis)
+                        </button>
+                        <button id="btn-upgrade-paypal" class="btn-cyber-secondary" type="button" style="width:100%;border-color:#d97706;color:#b45309;">
+                            ⭐ Suscribirse a Pro ($100 MXN / mes) o Enterprise
+                        </button>
+                    </div>
+
+                    <div id="user-saved-groups-section" class="user-saved-groups-section" style="margin-top:14px;border-top:1px solid #d5e4e7;padding-top:10px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                            <strong style="font-size:0.75rem;color:#103844;">Mis Grupos Guardados</strong>
+                            <span id="user-plan-badge" class="saas-badge" style="margin:0;">0 / 3 Grupos</span>
+                        </div>
+                        <div id="user-groups-limit-warning" style="display:none;padding:8px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:0.7rem;font-weight:700;margin-bottom:8px;">
+                            ⚠️ Límite de grupos alcanzado. Actualiza tu suscripción para guardar más grupos.
+                        </div>
+                        <div id="user-saved-groups-list" class="user-saved-groups-list" style="max-height:160px;overflow-y:auto;display:flex;flex-direction:column;gap:5px;">
+                            <div style="font-size:0.7rem;color:#6d868f;font-style:italic;">Inicia sesión para ver y gestionar tus grupos guardados.</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Columna Derecha: Selector de Estaciones -->
+                <div class="cyber-card grupo-selector-card">
+                    <div class="selector-header">
+                        <h3 style="margin:0;font-size:0.95rem;color:#123b47;">2. Selecciona las Estaciones</h3>
+                        <div class="selector-actions-quick">
+                            <button id="btn-sel-todas" type="button" class="btn-link-action">Seleccionar visibles</button>
+                            <span>·</span>
+                            <button id="btn-sel-ninguna" type="button" class="btn-link-action">Limpiar</button>
+                        </div>
+                    </div>
+                    <div class="cyber-field" style="margin:8px 0;">
+                        <input id="buscar-estacion-builder" class="cyber-input" type="text" placeholder="🔍 Buscar por nombre, clave o estado..." style="height:32px;font-size:0.75rem;" />
+                    </div>
+                    <div id="builder-stations-list" class="builder-stations-list">
+                        <!-- Las estaciones se cargan dinámicamente -->
+                    </div>
+                </div>
+            </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 4: REGISTRO E INICIO DE SESIÓN SAAS -->
+    <dialog id="saas-auth-dialog" class="query-dialog saas-auth-dialog" aria-labelledby="saas-auth-title" style="max-width:440px;height:auto;max-height:92vh;">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span id="saas-auth-subtitle">Acceso a HydroCloud</span>
+                <h2 id="saas-auth-title">Cuenta de Usuario</h2>
+            </div>
+            <button id="close-saas-auth-dialog" type="button" aria-label="Cerrar ventana de acceso">×</button>
+        </header>
+        <div class="query-dialog-body" style="padding:16px;">
+            <div class="auth-tabs" style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid #d5e4e7;padding-bottom:8px;">
+                <button id="auth-tab-register" type="button" class="auth-tab-btn active" style="flex:1;padding:8px;border:0;border-radius:6px;background:#08758a;color:#fff;font-weight:700;font-size:0.75rem;cursor:pointer;">Registrarme (Gratis)</button>
+                <button id="auth-tab-login" type="button" class="auth-tab-btn" style="flex:1;padding:8px;border:1px solid #cde0e4;border-radius:6px;background:#f0f7f8;color:#0f3844;font-weight:700;font-size:0.75rem;cursor:pointer;">Ya tengo cuenta</button>
+            </div>
+
+            <!-- Formulario Registro -->
+            <form id="form-saas-register" style="display:flex;flex-direction:column;gap:10px;">
+                <div class="cyber-field">
+                    <label for="reg-nombre">Nombre completo</label>
+                    <input id="reg-nombre" class="cyber-input" type="text" placeholder="Ej. Ing. Carlos Mendoza" required />
+                </div>
+                <div class="cyber-field">
+                    <label for="reg-email">Correo electrónico</label>
+                    <input id="reg-email" class="cyber-input" type="email" placeholder="carlos@correo.com" required />
+                </div>
+                <div class="cyber-field">
+                    <label for="reg-password">Contraseña (mínimo 6 caracteres)</label>
+                    <input id="reg-password" class="cyber-input" type="password" minlength="6" placeholder="••••••••" required />
+                </div>
+                <div class="saas-badge" style="margin-top:4px;">✨ Incluye 3 grupos de estaciones personalizados sin costo</div>
+                <button type="submit" class="btn-cyber-primary" style="height:38px;margin-top:6px;font-size:0.8rem;font-weight:750;">
+                    Crear mi cuenta gratuita
+                </button>
+            </form>
+
+            <!-- Formulario Login -->
+            <form id="form-saas-login" style="display:none;flex-direction:column;gap:10px;">
+                <div class="cyber-field">
+                    <label for="log-email">Correo electrónico</label>
+                    <input id="log-email" class="cyber-input" type="email" placeholder="carlos@correo.com" required />
+                </div>
+                <div class="cyber-field">
+                    <label for="log-password">Contraseña</label>
+                    <input id="log-password" class="cyber-input" type="password" placeholder="••••••••" required />
+                </div>
+                <button type="submit" class="btn-cyber-primary" style="height:38px;margin-top:6px;font-size:0.8rem;font-weight:750;">
+                    Iniciar sesión
+                </button>
+            </form>
+
+            <div id="saas-auth-error" style="display:none;margin-top:10px;padding:8px;border-radius:6px;background:#fee2e2;color:#b91c1c;font-size:0.72rem;font-weight:650;"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 5: GESTIÓN DE MIS ESTACIONES GOES -->
+    <dialog id="user-stations-dialog" class="query-dialog" aria-labelledby="user-stations-title" style="max-width:760px;height:auto;max-height:94vh;">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Telemetría Satelital SatGOES NOAA</span>
+                <h2 id="user-stations-title">📡 Mis Estaciones GOES</h2>
+            </div>
+            <button id="close-user-stations-dialog" type="button" aria-label="Cerrar modal de estaciones">×</button>
+        </header>
+
+        <!-- Barra de Estado / Cuota del Plan -->
+        <div style="background:#f0f9ff;border-bottom:1px solid #bae6fd;padding:10px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;font-size:0.75rem;color:#0369a1;">
+                <span>Plan: <strong id="station-dialog-plan-name">GRATIS</strong></span>
+                <span>•</span>
+                <span id="station-quota-text"><strong>0 de 1</strong> estaciones utilizadas</span>
+            </div>
+            <div style="display:flex;gap:6px;">
+                <button id="btn-tab-list-stations" type="button" class="btn-cyber-primary" style="height:26px;font-size:0.68rem;padding:0 10px;">
+                    📋 Mis Estaciones (<span id="user-stations-tab-count">0</span>)
+                </button>
+                <button id="btn-tab-new-station" type="button" class="btn-cyber-gold" style="height:26px;font-size:0.68rem;padding:0 10px;">
+                    ➕ Dar de Alta Estación
+                </button>
+            </div>
+        </div>
+
+        <div class="query-dialog-body" style="padding:16px;max-height:72vh;overflow-y:auto;">
+            <!-- VISTA 1: LISTADO DE MIS ESTACIONES -->
+            <div id="view-stations-list" style="display:block;">
+                <div id="user-stations-empty" style="display:none;text-align:center;padding:32px 14px;background:#f8fafc;border:2px dashed #cbd5e1;border-radius:10px;">
+                    <div style="font-size:2.2rem;margin-bottom:8px;">🛰️</div>
+                    <h3 style="margin:0 0 6px;color:#1e293b;font-size:0.95rem;">Aún no tienes estaciones registradas</h3>
+                    <p style="margin:0 0 14px;color:#64748b;font-size:0.75rem;max-width:440px;margin-inline:auto;">
+                        Puedes dar de alta estaciones GOES para que HydroCloud descargue vía satélite, decodifique y grafique en tiempo real sus sensores.
+                    </p>
+                    <button id="btn-empty-add-station" type="button" class="btn-cyber-gold" style="padding:8px 16px;font-size:0.75rem;">
+                        ✨ Dar de alta mi primera estación
+                    </button>
+                </div>
+
+                <div id="user-stations-cards" style="display:grid;grid-template-columns:1fr;gap:12px;"></div>
+            </div>
+
+            <!-- VISTA 2: FORMULARIO DE ALTA / EDICIÓN -->
+            <div id="view-stations-form" style="display:none;">
+                <form id="form-user-station" onsubmit="return false;">
+                    <input type="hidden" id="form-station-id" value="" />
+
+                    <!-- Bloque 1: Datos Generales -->
+                    <div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:12px;background:#fafafa;">
+                        <h4 style="margin:0 0 10px;font-size:0.78rem;color:#0f3844;text-transform:uppercase;letter-spacing:0.5px;">
+                            1. Datos Generales de la Estación
+                        </h4>
+                        <div style="display:grid;grid-template-columns:1fr 2fr;gap:10px;margin-bottom:10px;">
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#475569;margin-bottom:3px;">Clave / ID Asignado *</label>
+                                <input id="form-station-code" type="text" placeholder="Ej. MIEST01" style="width:100%;height:32px;font-size:0.75rem;font-family:var(--font-code);text-transform:uppercase;border:1px solid #cbd5e1;border-radius:5px;padding:0 8px;" required />
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#475569;margin-bottom:3px;">Nombre de la Estación *</label>
+                                <input id="form-station-name" type="text" placeholder="Ej. Rancho San Carlos" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #cbd5e1;border-radius:5px;padding:0 8px;" required />
+                            </div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:flex-end;">
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#475569;margin-bottom:3px;">Latitud (decimal) *</label>
+                                <input id="form-station-lat" type="number" step="any" placeholder="19.4326" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #cbd5e1;border-radius:5px;padding:0 8px;" required />
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#475569;margin-bottom:3px;">Longitud (decimal) *</label>
+                                <input id="form-station-lon" type="number" step="any" placeholder="-99.1332" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #cbd5e1;border-radius:5px;padding:0 8px;" required />
+                            </div>
+                            <div>
+                                <button id="btn-station-use-map-center" type="button" class="btn-cyber-secondary" style="width:100%;height:32px;font-size:0.68rem;justify-content:center;" title="Usar las coordenadas del centro del mapa">
+                                    📍 Centro del Mapa
+                                </button>
+                            </div>
+                        </div>
+                        <div style="margin-top:10px;">
+                            <label style="display:block;font-size:0.68rem;font-weight:700;color:#475569;margin-bottom:3px;">Cuenca Hidrológica (Opcional)</label>
+                            <select id="form-station-cuenca" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #cbd5e1;border-radius:5px;padding:0 8px;">
+                                <option value="">Sin cuenca asignada (o Cuenca privada)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Bloque 2: Parámetros Satelitales GOES -->
+                    <div style="border:1px solid #bae6fd;border-radius:8px;padding:12px;margin-bottom:12px;background:#f0f9ff;">
+                        <h4 style="margin:0 0 10px;font-size:0.78rem;color:#0369a1;text-transform:uppercase;letter-spacing:0.5px;">
+                            2. Configuración Satelital GOES (NESDIS / NOAA)
+                        </h4>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">DCP ID (8 Hex) *</label>
+                                <input id="form-station-dcpid" type="text" maxlength="8" placeholder="CE1A4B02" style="width:100%;height:32px;font-size:0.8rem;font-family:var(--font-code);text-transform:uppercase;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;font-weight:bold;color:#0369a1;" required />
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Primera Transmisión (UTC) *</label>
+                                <input id="form-station-primera" type="text" placeholder="00:15:00" style="width:100%;height:32px;font-size:0.75rem;font-family:var(--font-code);border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;" required />
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Intervalo de Transmisión</label>
+                                <select id="form-station-intervalo" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;">
+                                    <option value="01:00:00" selected>Cada 1 hora (01:00:00)</option>
+                                    <option value="00:30:00">Cada 30 minutos (00:30:00)</option>
+                                    <option value="02:00:00">Cada 2 horas (02:00:00)</option>
+                                    <option value="03:00:00">Cada 3 horas (03:00:00)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1.5fr;gap:10px;">
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Canal Primario</label>
+                                <input id="form-station-canal" type="number" min="1" max="266" value="169" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;" />
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Satélite</label>
+                                <select id="form-station-satelite" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;">
+                                    <option value="GOES-E" selected>GOES-East (75° W)</option>
+                                    <option value="GOES-W">GOES-West (137° W)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Velocidad</label>
+                                <select id="form-station-baud" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;">
+                                    <option value="300" selected>300 baud</option>
+                                    <option value="1200">1200 baud</option>
+                                    <option value="100">100 baud</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:0.68rem;font-weight:700;color:#0369a1;margin-bottom:3px;">Formato Decodificador</label>
+                                <select id="form-station-decoder" style="width:100%;height:32px;font-size:0.75rem;border:1px solid #7dd3fc;border-radius:5px;padding:0 8px;">
+                                    <option value="GS300" selected>GS300 (Estándar Sutron/OTT)</option>
+                                    <option value="OTTBinario">OTTBinario (Binario comprimido)</option>
+                                    <option value="SMN">SMN (Servicio Meteorológico Nal)</option>
+                                    <option value="SMN_ver2">SMN ver2 (Nuevo protocolo)</option>
+                                    <option value="VAISALA_Protocol_Text">VAISALA Protocol Text</option>
+                                    <option value="CILA_Text">CILA Text</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Bloque 3: Sensores a Monitorear -->
+                    <div style="border:1px solid #fed7aa;border-radius:8px;padding:12px;margin-bottom:14px;background:#fffbeb;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                            <h4 style="margin:0;font-size:0.78rem;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;">
+                                3. Sensores a Decodificar
+                            </h4>
+                            <span style="font-size:0.68rem;color:#92400e;">Selecciona las variables que transmite tu estación</span>
+                        </div>
+
+                        <div id="sensor-presets-container" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                            <!-- Sensor 1: Precipitación -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-rain" checked style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>🌧️ Precipitación / Lluvia</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0017 • mm (0 - 300)</div>
+                                </div>
+                            </label>
+                            <!-- Sensor 2: Nivel de agua -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-level" checked style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>🌊 Nivel de agua</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0018 • m (0 - 50)</div>
+                                </div>
+                            </label>
+                            <!-- Sensor 3: Temperatura -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-temp" checked style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>🌡️ Temperatura</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0019 • °C (-20 - 60)</div>
+                                </div>
+                            </label>
+                            <!-- Sensor 4: Voltaje batería -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-batt" checked style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>🔋 Voltaje Batería</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0020 • V (0 - 20)</div>
+                                </div>
+                            </label>
+                            <!-- Sensor 5: Humedad relativa -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-humidity" style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>💧 Humedad Relativa</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0021 • % (0 - 100)</div>
+                                </div>
+                            </label>
+                            <!-- Sensor 6: Presión atmosférica -->
+                            <label style="display:flex;align-items:flex-start;gap:8px;padding:8px;background:#fff;border:1px solid #fde68a;border-radius:6px;cursor:pointer;">
+                                <input type="checkbox" id="chk-sensor-pressure" style="margin-top:2px;" />
+                                <div style="font-size:0.72rem;">
+                                    <strong>🧭 Presión Atmosférica</strong>
+                                    <div style="color:#64748b;font-size:0.65rem;">Sensor 0022 • hPa (500 - 1100)</div>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div id="station-form-error" style="display:none;padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;color:#b91c1c;font-size:0.72rem;font-weight:700;margin-bottom:12px;"></div>
+
+                    <!-- Botones de Acción -->
+                    <div style="display:flex;gap:10px;justify-content:flex-end;">
+                        <button id="btn-cancel-station" type="button" class="btn-cyber-secondary" style="height:34px;padding:0 14px;font-size:0.75rem;">
+                            Cancelar
+                        </button>
+                        <button id="btn-save-station" type="submit" class="btn-cyber-gold" style="height:34px;padding:0 18px;font-size:0.75rem;font-weight:750;">
+                            💾 Guardar y Conectar Estación
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 6: SUSCRIPCIÓN PAYPAL PRO ($100 MXN), ENTERPRISE ($200 MXN) Y TODO ILIMITADO ($500 MXN) -->
+    <dialog id="paypal-modal-dialog" class="query-dialog paypal-modal-dialog" aria-labelledby="paypal-modal-title" style="max-width:760px;height:auto;max-height:94vh;">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Planes de Suscripción HydroCloud</span>
+                <h2 id="paypal-modal-title">⭐ Planes & Suscripciones HydroCloud</h2>
+            </div>
+            <button id="close-paypal-dialog" type="button" aria-label="Cerrar modal de suscripción">×</button>
+        </header>
+        <div class="query-dialog-body" style="padding:18px;">
+            <!-- Contenedor Comparativo de los 3 Planes -->
+            <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));gap:12px;margin-bottom:16px;">
+                <!-- Tarjeta 1: Plan Pro ($100 MXN) -->
+                <div id="paypal-card-pro" style="border:2px solid #f59e0b;border-radius:10px;background:#fffbeb;padding:12px;display:flex;flex-direction:column;justify-content:space-between;text-align:center;box-shadow:0 0 0 2px #f59e0b;cursor:pointer;">
+                    <div>
+                        <span class="saas-badge" style="background:#f59e0b;color:#fff;">PLAN PRO</span>
+                        <div style="font-size:1.6rem;font-weight:850;color:#78350f;margin:6px 0 2px;font-family:var(--font-code);">$100 <small style="font-size:0.75rem;">MXN/mes</small></div>
+                        <p style="margin:0 0 8px;font-size:0.7rem;color:#92400e;font-weight:700;">Para redes pequeñas y operadores</p>
+                        <ul style="text-align:left;font-size:0.68rem;color:#78350f;padding-left:14px;margin:0 0 10px;display:flex;flex-direction:column;gap:4px;">
+                            <li>✔ <strong>5 Estaciones GOES propias</strong></li>
+                            <li>✔ <strong>10 Grupos personalizados</strong></li>
+                            <li>✔ Lluvia promedio y acumulados</li>
+                            <li>✔ Descarga histórica CSV</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <button id="btn-select-pro" class="btn-cyber-gold" type="button" style="width:100%;height:30px;font-size:0.7rem;justify-content:center;">
+                            Elegir Pro ($100)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tarjeta 2: Plan Enterprise ($200 MXN) -->
+                <div id="paypal-card-enterprise" style="border:1px solid #bae6fd;border-radius:10px;background:#f0f9ff;padding:12px;display:flex;flex-direction:column;justify-content:space-between;text-align:center;position:relative;cursor:pointer;">
+                    <div style="position:absolute;top:-9px;right:8px;background:#0284c7;color:#fff;font-size:0.58rem;padding:1px 6px;border-radius:4px;font-weight:800;">MÁS POPULAR</div>
+                    <div>
+                        <span class="saas-badge" style="background:#0284c7;color:#fff;">ENTERPRISE</span>
+                        <div style="font-size:1.6rem;font-weight:850;color:#0369a1;margin:6px 0 2px;font-family:var(--font-code);">$200 <small style="font-size:0.75rem;">MXN/mes</small></div>
+                        <p style="margin:0 0 8px;font-size:0.7rem;color:#0284c7;font-weight:700;">Distritos y cuencas completas</p>
+                        <ul style="text-align:left;font-size:0.68rem;color:#0369a1;padding-left:14px;margin:0 0 10px;display:flex;flex-direction:column;gap:4px;">
+                            <li>✔ <strong>10 Estaciones GOES propias</strong></li>
+                            <li>✔ <strong>Grupos ILIMITADOS</strong></li>
+                            <li>✔ Estación extra por +$30 MXN/mes</li>
+                            <li>✔ Alertas de precipitación</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <button id="btn-select-enterprise" class="btn-cyber-primary" type="button" style="width:100%;height:30px;font-size:0.7rem;justify-content:center;">
+                            Elegir Enterprise ($200)
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Tarjeta 3: Plan Todo Ilimitado ($500 MXN) -->
+                <div id="paypal-card-unlimited" style="border:1px solid #d8b4fe;border-radius:10px;background:#faf5ff;padding:12px;display:flex;flex-direction:column;justify-content:space-between;text-align:center;position:relative;cursor:pointer;">
+                    <div style="position:absolute;top:-9px;right:8px;background:#7e22ce;color:#fff;font-size:0.58rem;padding:1px 6px;border-radius:4px;font-weight:800;">TODO ILIMITADO</div>
+                    <div>
+                        <span class="saas-badge" style="background:#7e22ce;color:#fff;">UNLIMITED</span>
+                        <div style="font-size:1.6rem;font-weight:850;color:#581c87;margin:6px 0 2px;font-family:var(--font-code);">$500 <small style="font-size:0.75rem;">MXN/mes</small></div>
+                        <p style="margin:0 0 8px;font-size:0.7rem;color:#7e22ce;font-weight:700;">Sin topes · Corporativo</p>
+                        <ul style="text-align:left;font-size:0.68rem;color:#581c87;padding-left:14px;margin:0 0 10px;display:flex;flex-direction:column;gap:4px;">
+                            <li>✔ <strong>Estaciones GOES ILIMITADAS</strong></li>
+                            <li>✔ <strong>Grupos ILIMITADOS</strong></li>
+                            <li>✔ Máxima prioridad de decodificación</li>
+                            <li>✔ Soporte técnico directo 24/7</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <button id="btn-select-unlimited" class="btn-cyber-secondary" style="width:100%;height:30px;font-size:0.7rem;justify-content:center;background:#7e22ce;color:#fff;border-color:#6b21a8;" type="button">
+                            Elegir Ilimitado ($500)
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Contenedor del Botón Oficial de PayPal -->
+            <div id="paypal-selected-plan-label" style="text-align:center;font-size:0.75rem;font-weight:700;color:#183b46;margin-bottom:8px;">
+                Plan seleccionado: <span id="paypal-active-plan-name" style="color:#f59e0b;">Plan Pro ($100 MXN / mes · 5 Estaciones · 10 Grupos)</span>
+            </div>
+            <div id="paypal-button-container" style="min-height:50px;"></div>
+
+            <!-- Botones Demo Sandbox / Modo Pruebas -->
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+                <button id="btn-paypal-sandbox-activate" class="btn-cyber-gold" type="button" style="flex:1;min-width:140px;height:34px;font-size:0.68rem;justify-content:center;" title="Activar plan Pro (5 estaciones, 10 grupos) en modo sandbox">
+                    ⭐ Activar Pro ($100 Sandbox)
+                </button>
+                <button id="btn-paypal-sandbox-enterprise" class="btn-cyber-primary" type="button" style="flex:1;min-width:140px;height:34px;font-size:0.68rem;justify-content:center;" title="Activar plan Enterprise (10 estaciones, grupos ilimitados) en modo sandbox">
+                    🚀 Activar Enterprise ($200 Sandbox)
+                </button>
+                <button id="btn-paypal-sandbox-unlimited" class="btn-cyber-secondary" type="button" style="flex:1;min-width:140px;height:34px;font-size:0.68rem;justify-content:center;background:#7e22ce;color:#fff;border-color:#6b21a8;" title="Activar plan Todo Ilimitado (Estaciones y grupos ilimitados) en modo sandbox">
+                    👑 Activar Ilimitado ($500 Sandbox)
+                </button>
+            </div>
+            <div id="paypal-status-msg" style="display:none;margin-top:10px;padding:8px;border-radius:6px;font-size:0.72rem;font-weight:700;text-align:center;"></div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 7: MI CUENTA Y ESTADO DE SUSCRIPCIÓN -->
+    <dialog id="saas-account-dialog" class="query-dialog" aria-labelledby="saas-account-title" style="max-width:500px;height:auto;max-height:94vh;">
+      <div class="query-dialog-shell">
+        <header class="query-dialog-header">
+            <div>
+                <span>Gestión de Usuario</span>
+                <h2 id="saas-account-title">👤 Mi Cuenta & Suscripción</h2>
+            </div>
+            <button id="close-saas-account-dialog" type="button" aria-label="Cerrar ventana de cuenta">×</button>
+        </header>
+        <div class="query-dialog-body" style="padding:18px;display:flex;flex-direction:column;gap:14px;">
+            <!-- Tarjeta Usuario -->
+            <div style="display:flex;align-items:center;gap:12px;padding:12px;border:1px solid #d5e4e7;border-radius:8px;background:#f8fafc;">
+                <div style="width:42px;height:42px;border-radius:50%;background:#0284c7;color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.2rem;font-weight:bold;">
+                    👤
+                </div>
+                <div style="min-width:0;flex:1;">
+                    <strong id="account-user-name" style="font-size:0.88rem;color:#0f3844;display:block;">—</strong>
+                    <span id="account-user-email" style="font-size:0.75rem;color:#64748b;display:block;">—</span>
+                </div>
+            </div>
+
+            <!-- Resumen del Plan -->
+            <div style="padding:14px;border:1px solid #fed7aa;border-radius:8px;background:#fffbeb;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                    <span style="font-size:0.72rem;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;">Plan Activo</span>
+                    <span id="account-plan-badge" class="saas-badge" style="background:#f59e0b;color:#fff;">PRO ($100 MXN / mes)</span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;font-size:0.76rem;color:#78350f;margin-bottom:8px;">
+                    <div><strong>📡 Estaciones GOES Propias:</strong> <span id="account-stations-usage">0 de 1 estación</span></div>
+                    <div><strong>⭐ Grupos Personalizados:</strong> <span id="account-groups-usage">0 de 3 grupos</span></div>
+                </div>
+                <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px dashed #fde68a;padding-top:8px;">
+                    <span style="font-size:0.72rem;color:#78350f;">
+                        ID Suscripción: <code id="account-sub-id" style="background:#fef3c7;padding:2px 6px;border-radius:4px;font-size:0.68rem;">—</code>
+                    </span>
+                    <button id="btn-account-upgrade-plan" type="button" class="btn-cyber-gold" style="height:24px;padding:0 8px;font-size:0.65rem;">
+                        ⭐ Cambiar Plan
+                    </button>
+                </div>
+            </div>
+
+            <!-- Cobros y Facturación -->
+            <div style="padding:12px;border:1px solid #e2e8f0;border-radius:8px;background:#fff;">
+                <div style="font-weight:700;font-size:0.78rem;color:#1e293b;margin-bottom:6px;">💳 Facturación y Recibos</div>
+                <p style="font-size:0.72rem;color:#64748b;margin:0 0 10px;line-height:1.4;">
+                    Los cobros mensuales recurrentes y los comprobantes oficiales de pago son emitidos y resguardados directamente por <strong>PayPal</strong>.
+                </p>
+                <a id="btn-paypal-manage-link" href="https://www.sandbox.paypal.com/myaccount/autopay/" target="_blank" rel="noopener noreferrer" class="btn-cyber-secondary" style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;text-decoration:none;font-size:0.72rem;font-weight:700;">
+                    🔗 Ver Recibos y Pagos en PayPal ↗
+                </a>
+            </div>
+
+            <!-- Botones inferiores -->
+            <div style="display:flex;gap:10px;margin-top:4px;">
+                <button id="btn-account-logout" type="button" class="btn-cyber-secondary" style="flex:1;background:#fef2f2;border-color:#fca5a5;color:#b91c1c;font-weight:700;font-size:0.75rem;cursor:pointer;">
+                    🚪 Cerrar Sesión
+                </button>
+                <button id="btn-account-close" type="button" class="btn-cyber-primary" style="flex:1;font-weight:700;font-size:0.75rem;cursor:pointer;">
+                    Aceptar
+                </button>
+            </div>
+
+            <!-- Zona de Peligro: Eliminar Cuenta y Grupos -->
+            <div style="border-top:1px dashed #cbd5e1;padding-top:10px;margin-top:2px;">
+                <button id="btn-account-delete" type="button" style="width:100%;padding:7px;border:1px solid #f87171;border-radius:6px;background:#fff1f2;color:#b91c1c;font-size:0.72rem;font-weight:750;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+                    🗑️ Borrar mi cuenta, mis estaciones y grupos asociados
+                </button>
+            </div>
+        </div>
+      </div>
+    </dialog>
+
+    <!-- MODAL 3D DELUXE: GLOBO TERRÁQUEO Y CONSTELACIÓN SATELITAL GOES (THREE.JS) -->
+    <dialog id="goes-3d-dialog" class="query-dialog goes-3d-dialog" aria-labelledby="goes-3d-title">
+        <div class="goes-3d-shell">
+            <!-- 3D HEADER HUD -->
+            <div class="goes-3d-header">
+                <div class="goes-3d-brand">
+                    <span class="goes-3d-badge">HYDROCLOUD 3D ENGINE · THREE.JS</span>
+                    <h2 id="goes-3d-title">Constelación Satelital NOAA GOES & Red Terrestre</h2>
+                </div>
+                <div class="goes-3d-quicknav">
+                    <button type="button" id="btn-3d-nav-global" class="btn-3d-nav active">🌎 Órbita Global</button>
+                    <button type="button" id="btn-3d-nav-mexico" class="btn-3d-nav">🇲🇽 México</button>
+                    <button type="button" id="btn-3d-nav-goeseast" class="btn-3d-nav">🛰️ GOES-East (16)</button>
+                    <button type="button" id="btn-3d-nav-goeswest" class="btn-3d-nav">🛰️ GOES-West (18)</button>
+                    <button type="button" id="close-3d-dialog" class="btn-3d-close" aria-label="Cerrar vista 3D">×</button>
+                </div>
+            </div>
+
+            <!-- 3D CANVAS VIEWPORT -->
+            <div class="goes-3d-viewport" id="goes-3d-container">
+                <canvas id="goes-3d-canvas"></canvas>
+
+                <!-- SCI-FI HUD OVERLAYS -->
+                <div class="goes-3d-hud-left">
+                    <div class="hud-box">
+                        <span class="hud-label">ESTACIONES RASTREADAS</span>
+                        <strong id="hud-3d-stations-count" class="hud-value">770</strong>
+                    </div>
+                    <div class="hud-box">
+                        <span class="hud-label">SATÉLITES EN POSICIÓN</span>
+                        <strong class="hud-value">GOES-16 & GOES-18</strong>
+                    </div>
+                    <div class="hud-box">
+                        <span class="hud-label">TELEMETRÍA SATELITAL</span>
+                        <span class="hud-status-live"><span class="hud-pulse-dot"></span> EN VIVO</span>
+                    </div>
+                </div>
+
+                <div class="goes-3d-hud-right">
+                    <div class="hud-box" id="hud-3d-hover-info">
+                        <span class="hud-label">OBJETIVO SELECCIONADO</span>
+                        <div id="hud-3d-target-name" style="font-size:0.78rem;font-weight:750;color:#67e8f9;">Haz clic o rota el globo</div>
+                        <div id="hud-3d-target-details" style="font-size:0.68rem;color:#94a3b8;">Rotar: Clic izq | Zoom: Rueda | Mover: Clic der</div>
+                    </div>
+                </div>
+
+                <div class="goes-3d-hud-bottom">
+                    <span style="font-size:0.66rem;color:#94a3b8;">
+                        Órbita Geoestacionaria: 35,786 km sobre el Ecuador · Bandas L/S DCS NOAA
+                    </span>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- MODAL DE NOTIFICACIONES Y CONFIRMACIONES CON ESTILO HYDROCLOUD -->
+    <dialog id="hydro-alert-dialog" class="query-dialog hydro-alert-dialog" aria-labelledby="hydro-alert-title">
+        <div class="hydro-alert-shell">
+            <div class="hydro-alert-icon-wrap is-info" id="hydro-alert-icon-wrap">
+                <div class="hydro-alert-icon-pulse"></div>
+                <div class="hydro-alert-icon-body" id="hydro-alert-icon-body">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"></circle>
+                        <line x1="12" y1="16" x2="12" y2="12"></line>
+                        <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                    </svg>
+                </div>
+            </div>
+            <div class="hydro-alert-content">
+                <h3 id="hydro-alert-title" class="hydro-alert-title">Notificación</h3>
+                <div id="hydro-alert-message" class="hydro-alert-message"></div>
+            </div>
+            <div class="hydro-alert-actions" id="hydro-alert-actions">
+                <button type="button" id="hydro-alert-cancel" class="btn-cyber-secondary" style="display:none;">Cancelar</button>
+                <button type="button" id="hydro-alert-ok" class="btn-cyber-primary">Aceptar</button>
+            </div>
+        </div>
+    </dialog>
+
 </div>
 
 <script src="~/vendor/leaflet/leaflet.js" defer></script>
 <script src="~/vendor/animejs/anime-4.5.0.umd.min.js" defer></script>
 <script src="~/vendor/highstock-13.1.1.js" defer></script>
 <script src="~/vendor/highstock-accessibility-13.1.1.js" defer></script>
+<script src="~/vendor/three.min.js" defer></script>
+<script src="~/vendor/OrbitControls.js" defer></script>
+<script src="~/goes3d.js" asp-append-version="true" defer></script>
 <script src="~/explore.js" asp-append-version="true" defer></script>

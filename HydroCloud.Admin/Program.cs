@@ -66,7 +66,7 @@ if (!app.Environment.IsDevelopment()) { app.UseHsts(); app.UseHttpsRedirection()
 app.Use(async (ctx, next) =>
 {
     ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
-    ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; script-src 'self'; connect-src 'self' https://api.rainviewer.com; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com https://services.arcgisonline.com https://gibs.earthdata.nasa.gov https://tilecache.rainviewer.com; frame-ancestors 'self' https://huggingface.co https://*.hf.space; form-action 'self'; base-uri 'self'";
+    ctx.Response.Headers["Content-Security-Policy"] = "default-src 'self'; style-src 'self' https://fonts.googleapis.com; style-src-attr 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; script-src 'self' https://www.paypal.com https://*.paypal.com https://*.paypalobjects.com; connect-src 'self' https://api.rainviewer.com https://www.paypal.com https://*.paypal.com; frame-src 'self' https://www.paypal.com https://*.paypal.com; img-src 'self' data: https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://*.tile.opentopomap.org https://server.arcgisonline.com https://services.arcgisonline.com https://gibs.earthdata.nasa.gov https://tilecache.rainviewer.com https://www.paypalobjects.com; frame-ancestors 'self' https://huggingface.co https://*.hf.space; form-action 'self' https://www.paypal.com https://*.paypal.com; base-uri 'self'";
     ctx.Response.Headers["Referrer-Policy"]="strict-origin-when-cross-origin";
     await next();
 });

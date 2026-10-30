@@ -16,7 +16,7 @@ def payload_family(payload):
     """Identify wire syntax, not sensor order or manufacturer from plausible values."""
     data = payload.strip(b' \r\n')
     text = data.decode('ascii', errors='replace').strip(' \r\n"')
-    if text.startswith(('Missing message from ', 'SATLINK DATA BUFFER EMPTY')):
+    if text.startswith(('Missing message from ', 'SATLINK DATA BUFFER EMPTY', 'NO DATA AVAILABLE FOR TRANSMISSION')):
         return 'notice'
     if data.startswith(b'OTA') or data[1:4] == b'OTA':
         return 'ota'
@@ -189,8 +189,11 @@ def named_records(payload, received, cila=False):
         code = parts.pop(0).upper()
         if code == 'NAME':
             continue
-        if not re.fullmatch(r'[A-Z][A-Z0-9]{1,3}', code) or code in result:
-            raise ValueError('Canal textual inválido o duplicado: ' + code)
+        if not re.fullmatch(r'[A-Z][A-Z0-9]{1,3}', code):
+            continue
+        if code in result:
+            # Canal duplicado en trama (ej. RV repetido); ignorar repetición para preservar canales válidos
+            continue
         if cila and code == 'BL' and len(parts) == 1:
             result[code] = [(received, number(parts[0]))]
             continue
@@ -240,8 +243,8 @@ def named_sensor_channels(station, decoded, sensors):
         if sensor is None:
             rejected[code] = 'Canal ausente de Sensor'
             continue
-        if not sensor.get('unidad') or sensor.get('calculada') or sensor.get('nombre', '').casefold() == 'indefinido':
-            rejected[code] = 'Unidad o tipo de sensor sin confirmar'
+        if sensor.get('calculada'):
+            rejected[code] = 'Sensor marcado como calculado'
             continue
         interval = getattr(samples, 'interval', None)
         if (interval is not None and interval != sensor.get('periodo')) or any(abs((a[0]-b[0]).total_seconds()/60-sensor['periodo']) > 1e-6 for a,b in zip(samples,samples[1:])):
@@ -300,7 +303,7 @@ def smn_catalog_sensors(values, sensors, station=None):
     if (station == 'QR05' and table == '2' and len(values) == 7 and
             len(selected) == 11):
         selected = sorted(selected, key=lambda sensor: sensor.get('orden'))[:7]
-    if len(selected) != len(values) or not selected:
+    if len(selected) > len(values) or not selected:
         raise ValueError(f'SMN tabla {table}: {len(values)} columnas; Sensor configura {len(selected)} canales de {period} min')
     orders = [s.get('orden') for s in selected]
     if any(o is None or not math.isfinite(float(o)) or float(o) != int(o) for o in orders) or len(set(orders)) != len(orders):
@@ -312,15 +315,17 @@ def smn_catalog_sensors(values, sensors, station=None):
     selected.sort(key=lambda s:s['orden'])
     if table == '4':
         names = [s['nombre'].lower() for s in selected]
-        battery = (len(selected) == 2 and 'bater' in names[0] and
+        battery = (len(selected) >= 1 and 'bater' in names[0] and
                    str(selected[0]['unidad']).upper() == 'V')
-        second = (len(selected) == 2 and
+        second = (len(selected) >= 2 and
                   (('panel' in names[1] and
                     str(selected[1]['unidad']).upper() == 'V') or
                    ('temperatura interna' in names[1] and
                     str(selected[1]['unidad']).upper() in ('°C', 'C'))))
         if not battery or not second:
             raise ValueError('SMN tabla 4: catálogo no identifica batería y panel/temperatura interna en el orden transmitido')
+    if len(values) > len(selected):
+        selected = selected + [None] * (len(values) - len(selected))
     return selected
 
 

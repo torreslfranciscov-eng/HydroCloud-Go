@@ -4,9 +4,13 @@
   "NY02": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
   "NY03": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
   "MC38": {"tables":{"2":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011"],"4":["0012","0013"]}},
+  "CS05": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "MC09": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "CH22": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
+  "TB07": {"tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}},
   "QR15": {
-    "tables":{"default":[null,null,null,null,null,null,null,null,null,null,"0010",null]},
-    "evidence":"Solo batería: columna 11. Resto pendiente de conciliación del catálogo; sensores 0011 y 0012 duplican panel solar. No inferir sus asignaciones."
+    "tables":{"default":["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]},
+    "evidence":"Alineado 1 a 1 con dbo.sensor (0001..0012); 0008 = Indefinido (segunda presión)."
   },
   "SO06": {
     "tables": {
@@ -18,27 +22,27 @@
     "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}
   },
   "CH28": {
-    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007",null,"0008","0009","0010","0011"]},
-    "evidence": "La trama contiene dos presiones; el catálogo sólo define una. La segunda se conserva como columna nula."
+    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]},
+    "evidence": "Alineado 1 a 1 con dbo.sensor (0001..0012); 0008 = Indefinido (segunda presión)."
   },
   "CL16": {
     "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]}
   },
   "SO01": {
-    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007",null,"0008","0009","0010","0011"]},
-    "evidence": "La trama contiene presión de estación y presión reducida; el catálogo sólo define la primera. La segunda se conserva como columna nula."
+    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]},
+    "evidence": "Alineado 1 a 1 con dbo.sensor (0001..0012); 0008 = Indefinido (segunda presión)."
   },
   "CM03": {
-    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007",null,"0008","0009","0010","0011"]},
-    "evidence": "La trama contiene dos presiones; el catálogo sólo define una. La segunda se conserva como columna nula."
+    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]},
+    "evidence": "Alineado 1 a 1 con dbo.sensor (0001..0012); 0008 = Indefinido (segunda presión)."
   },
   "QR13": {
-    "tables": {"default": ["0008","0001","0002","0003","0004","0005","0006","0007",null,"0009","0010"]},
-    "evidence": "Precipitación acumulada antecede a los canales meteorológicos; la segunda presión no existe en Sensor y el panel no viene en la trama."
+    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011"]},
+    "evidence": "Alineado 1 a 1 con dbo.sensor (0001..0011): 0001/0008/0010 Indefinido, 0002 Dir viento, 0003 Dir ráfaga, 0004 Vel viento, 0005 Vel ráfaga, 0006 Temp, 0007 Humedad, 0009 Presión, 0011 Batería."
   },
   "YC05": {
-    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007",null,"0008","0009","0010","0011"]},
-    "evidence": "Doce columnas observadas; la segunda presión no existe en Sensor y se conserva como nula, sin desplazar precipitación, radiación ni voltajes."
+    "tables": {"default": ["0001","0002","0003","0004","0005","0006","0007","0008","0009","0010","0011","0012"]},
+    "evidence": "Alineado 1 a 1 con dbo.sensor (0001..0012); 0008 = Indefinido (segunda presión)."
   },
   "FRAIMADE30": {
     "channels": {"NI":"0001","PA":"0002","VB":"0003"},
