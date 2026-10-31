@@ -430,7 +430,7 @@ def _create_pg_pool():
         return
     _pg_pool = psycopg2.pool.ThreadedConnectionPool(
         minconn=2,
-        maxconn=10,
+        maxconn=25,
         host=PG_HOST,
         port=PG_PORT,
         user=PG_USER,
@@ -4050,12 +4050,12 @@ def _guardar_trama_rechazada(dcp_id, id_asignado, decoder, payload, motivo, host
 # Rutina separada del scheduler principal: cada RETRY_SCAN_SECONDS revisa
 # public.estatus_estaciones y, para las estaciones con fecha_ultima_tx mayor a
 # RETRY_DELAY_MINUTES, intenta una descarga nueva (ventana de RETRY_WINDOW_HOURS).
-RETRY_SCAN_SECONDS = 300
+RETRY_SCAN_SECONDS = 180
 RETRY_DELAY_MINUTES = 65
 RETRY_MAX_DELAY_HOURS = 48       # más allá de esto se deja a la recuperación manual
-RETRY_COOLDOWN_SECONDS = 1800    # no reintentar la misma estación más seguido que esto
-RETRY_WINDOW_HOURS = 3
-RETRY_WORKERS = 6                # descargas simultáneas (sin saturar LRGS ni el pool PG)
+RETRY_COOLDOWN_SECONDS = 300     # no reintentar la misma estación más seguido que esto
+RETRY_WINDOW_HOURS = 8
+RETRY_WORKERS = 8                # descargas simultáneas (sin saturar LRGS ni el pool PG)
 _retry_last_attempt = {}
 
 def _retry_missed_transmissions_loop():
