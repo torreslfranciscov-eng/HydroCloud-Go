@@ -6133,6 +6133,9 @@ if platform.system() == 'Windows':
                 monitor_thread = threading.Thread(target=_iniciar_monitor_web, args=(monitor_port,), daemon=True)
                 monitor_thread.start()
 
+                # Rutina independiente de reintento de TX perdidas en Windows Service
+                threading.Thread(target=_retry_missed_transmissions_loop, name="retry-tx", daemon=True).start()
+
                 while self._running:
                     try:
                         if _scheduler_running.is_set():
