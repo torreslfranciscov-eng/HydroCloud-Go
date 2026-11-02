@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 > nul
+setlocal
 echo ================================================================
 echo    DESINSTALADOR DE SERVICIO WINDOWS - HYDROCLOUD
 echo ================================================================
@@ -12,8 +12,8 @@ if %errorLevel% neq 0 (
     exit /b 1
 )
 
-if exist .venv\Scripts\activate.bat (
-    call .venv\Scripts\activate.bat
+if exist .venv\Scriptsctivate.bat (
+    call .venv\Scriptsctivate.bat
 )
 
 echo Deteniendo servicio MyCloudTimescale...
@@ -25,7 +25,7 @@ python mycloud_all_timescale.py remove
 
 echo.
 echo ================================================================
-echo  Servicio detenido y eliminado del Administrador de Servicios.
+echo  Servicio detenido y eliminado.
 echo ================================================================
 echo.
 pause
