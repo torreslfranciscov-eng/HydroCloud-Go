@@ -1218,7 +1218,7 @@
   $('query-export').addEventListener('click',async()=>{
     if(!lastQuery)return;$('query-export').disabled=true;
     try{const response=await fetch('/Explore/Export?'+lastQuery);if(!response.ok){let data=await response.json();throw Error(data.error||'No se pudo exportar.');}
-      const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download='hydrocloud-'+result.product+(response.headers.get('X-HydroCloud-Truncated')?'‑PARCIAL‑2000':'')+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download='hydrocloud-'+result.product+(response.headers.get('X-HydroCloud-Truncated')?'‑PARCIAL‑10000':'')+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     }catch(error){show(error.message,true);}finally{$('query-export').disabled=false;}
   });
   function renderTable(){const table=document.createElement('table');table.className='cyber-table';const head=document.createElement('thead'),tr=document.createElement('tr');for(const col of result.columns){const th=document.createElement('th');th.textContent=col;tr.append(th);}head.append(tr);table.append(head);const body=document.createElement('tbody');for(const row of result.rows){const tr=document.createElement('tr');for(const col of result.columns){const td=document.createElement('td');td.textContent=row[col]??'—';tr.append(td);}body.append(tr);}table.append(body);$('result-table').replaceChildren(table);}
@@ -1720,9 +1720,8 @@
     });
     const points=groups.flatMap(group=>group.points);
 
-    // Wind suite toolbar detection
-    const isWindSelected = groups.some(g => g.profile.kind === 'direction' || g.profile.kind === 'wind' || g.profile.kind === 'gust') ||
-      (result && result.rows && result.rows.some(r => /viento|rafaga|rumbo/i.test(r.VARIABLE || '')));
+    // Wind suite toolbar detection (only show when a wind sensor is active)
+    const isWindSelected = groups.some(g => g.profile.kind === 'direction' || g.profile.kind === 'wind' || g.profile.kind === 'gust');
     const windToolbar = $('wind-toolbar');
     if (windToolbar) {
       windToolbar.style.display = isWindSelected ? 'inline-flex' : 'none';

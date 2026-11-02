@@ -407,8 +407,9 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
         var begin=date?"@startDate":"@startTime";
         var end=date?"@endDate":"@endTime";
         var extra=p.End is not null?$" AND {p.End} <= @endTime":p.Bucket=="day"?$" AND {p.Time}+1 <= {end}":p.Bucket=="hour"?$" AND {p.Time}+INTERVAL '1 hour' <= @endTime":"";
+        const int MaxRows = 10000;
         var order=string.Join(',',columns.Where(x=>x!=p.Time && x is "SENSOR_ID" or "VARIABLE" or "DCP_ID").DefaultIfEmpty(p.Scope));
-        var sql=$"SELECT {p.Columns} FROM public.{p.Table} WHERE {p.Scope}=ANY(@keys) AND {p.Time}>={begin} AND {p.Time}<={end}{extra} ORDER BY {p.Time},{order} LIMIT 2001";
+        var sql=$"SELECT {p.Columns} FROM public.{p.Table} WHERE {p.Scope}=ANY(@keys) AND {p.Time}>={begin} AND {p.Time}<={end}{extra} ORDER BY {p.Time} DESC,{order} LIMIT {MaxRows + 1}";
         await using var cmd=new NpgsqlCommand(sql,c){CommandTimeout=60};
         cmd.Parameters.Add("keys",NpgsqlDbType.Array|NpgsqlDbType.Text).Value=keys.ToArray();
         if(date)
@@ -438,8 +439,9 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
             }
             rows.Add(row);
         }
-        bool truncated=rows.Count>2000;if(truncated) rows.RemoveAt(rows.Count-1);
-        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?" Se muestran/exportan las primeras 2,000 filas: reduce el periodo para obtener el resto.":""),goesSchedule);
+        bool truncated=rows.Count>MaxRows;if(truncated) rows.RemoveAt(rows.Count-1);
+        rows.Reverse();
+        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?$" Se muestran/exportan las {MaxRows:N0} lecturas más recientes del periodo: reduce el rango si requieres mayor detalle.":""),goesSchedule);
     }
     public async Task<SaasUser?> FindSaasUserByEmail(string email, CancellationToken ct = default)
     {
@@ -1395,7 +1397,7 @@ public sealed class ExploreController(IConsultationRepository repository,Visitor
             var text=new StringBuilder();text.AppendLine(string.Join(',',data.Columns.Select(Csv)));
             foreach(var row in data.Rows) text.AppendLine(string.Join(',',data.Columns.Select(k=>Csv(row[k]))));
             if(data.Truncated) Response.Headers["X-HydroCloud-Truncated"]="true";
-            return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text.ToString())).ToArray(),"text/csv; charset=utf-8",$"hydrocloud-{p.Key}{(data.Truncated?"-PARCIAL-2000":"")}.csv");
+            return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text.ToString())).ToArray(),"text/csv; charset=utf-8",$"hydrocloud-{p.Key}{(data.Truncated?"-PARCIAL-10000":"")}.csv");
         }
         catch(ArgumentException e) {return BadRequest(new{error=e.Message});}
         catch(SqlException e) {log.LogWarning("Consulta de catálogo DB_ATLAS fallida: código {Code}",e.Number);return StatusCode(503,new{error="No fue posible consultar el catálogo de estaciones."});}
