@@ -42,6 +42,8 @@ import sys
 import io
 # Forzar salida en UTF-8 para evitar UnicodeEncodeError en consola Windows
 def _print_public_ip():
+    if DB_BACKEND != 'oracle':
+        return
     try:
         import urllib.request
         with urllib.request.urlopen("https://api.ipify.org?format=text", timeout=5) as response:
@@ -52,8 +54,6 @@ def _print_public_ip():
             print(f"==================================================\n", flush=True)
     except Exception as e:
         print(f"[NETWORK] ⚠️ No se pudo obtener la IP pública: {e}", flush=True)
-
-_print_public_ip()
 
 from flask import Flask, jsonify, request, Response
 
@@ -125,8 +125,11 @@ SQL_DB = config.get(sql_section, 'database', fallback='IGSCLOUD_PRO')
 SQL_USER = config.get(sql_section, 'user', fallback='sa')
 SQL_PASSWORD = config.get(sql_section, 'password', fallback='Cfe2026$$')
 
-print(f"[CONFIG] SQL Server Mode: {SQL_MODE.upper()}")
-print(f"[CONFIG] Conectando a SQL Server: {SQL_SERVER}:{SQL_PORT}/{SQL_DB}")
+if DB_BACKEND == 'timescale':
+    print(f"[CONFIG] Backend de telemetría: TimescaleDB Cloud ({PG_HOST})")
+else:
+    print(f"[CONFIG] SQL Server Mode: {SQL_MODE.upper()}")
+    print(f"[CONFIG] Conectando a SQL Server: {SQL_SERVER}:{SQL_PORT}/{SQL_DB}")
 
 SQL_CONN_STR = (
     'DRIVER={ODBC Driver 18 for SQL Server};'
