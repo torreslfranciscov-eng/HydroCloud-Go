@@ -103,7 +103,7 @@ public interface IConsultationRepository
     Task<List<UpstreamStation>> UpstreamStations(CancellationToken cancellation);
     Task<List<UpstreamCondition>> UpstreamConditions(CancellationToken cancellation);
     Task<List<LatestLevel>> LatestDamLevels(CancellationToken cancellation);
-    Task<QueryData> Query(string stationId,QueryProduct product,QueryWindow window,CancellationToken cancellation,string? sensorId=null,string? variable=null);
+    Task<QueryData> Query(string stationId,QueryProduct product,QueryWindow window,CancellationToken cancellation,string? sensorId=null,string? variable=null,int maxRows=50000);
     Task<SaasUser?> FindSaasUserByEmail(string email, CancellationToken cancellation = default);
     Task<SaasUser?> FindSaasUserById(Guid id, CancellationToken cancellation = default);
     Task<SaasUser> CreateSaasUser(string email, string passwordHash, string nombre, CancellationToken cancellation = default);
@@ -341,7 +341,7 @@ JOIN LATERAL (
         string? userId = r.FieldCount > 12 && !r.IsDBNull(12) ? r.GetString(12) : null;
         return new(r.GetString(0),r.IsDBNull(1)?"":r.GetString(1),r.IsDBNull(2)?"Sin nombre":r.GetString(2),lat,lon,!r.IsDBNull(5)&&r.GetBoolean(5),!r.IsDBNull(6)&&r.GetBoolean(6),!r.IsDBNull(7)&&r.GetBoolean(7),!r.IsDBNull(8)&&r.GetBoolean(8),r.GetInt32(9),r.GetInt32(10),basinId,userId);
     }
-    public async Task<QueryData> Query(string stationId,QueryProduct p,QueryWindow window,CancellationToken ct,string? sensorId=null,string? variable=null)
+    public async Task<QueryData> Query(string stationId,QueryProduct p,QueryWindow window,CancellationToken ct,string? sensorId=null,string? variable=null,int maxRows=50000)
     {
         // Visibility and station-to-DCP mapping are resolved server-side, not accepted from a URL.
         if(!Guid.TryParse(stationId,out var stationGuid)) throw new ArgumentException("La estación solicitada no es válida.");
@@ -407,9 +407,8 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
         var begin=date?"@startDate":"@startTime";
         var end=date?"@endDate":"@endTime";
         var extra=p.End is not null?$" AND {p.End} <= @endTime":p.Bucket=="day"?$" AND {p.Time}+1 <= {end}":p.Bucket=="hour"?$" AND {p.Time}+INTERVAL '1 hour' <= @endTime":"";
-        const int MaxRows = 10000;
         var order=string.Join(',',columns.Where(x=>x!=p.Time && x is "SENSOR_ID" or "VARIABLE" or "DCP_ID").DefaultIfEmpty(p.Scope));
-        var sql=$"SELECT {p.Columns} FROM public.{p.Table} WHERE {p.Scope}=ANY(@keys) AND {p.Time}>={begin} AND {p.Time}<={end}{extra} ORDER BY {p.Time} DESC,{order} LIMIT {MaxRows + 1}";
+        var sql=$"SELECT {p.Columns} FROM public.{p.Table} WHERE {p.Scope}=ANY(@keys) AND {p.Time}>={begin} AND {p.Time}<={end}{extra} ORDER BY {p.Time} DESC,{order} LIMIT {maxRows + 1}";
         await using var cmd=new NpgsqlCommand(sql,c){CommandTimeout=60};
         cmd.Parameters.Add("keys",NpgsqlDbType.Array|NpgsqlDbType.Text).Value=keys.ToArray();
         if(date)
@@ -439,9 +438,9 @@ ORDER BY s.Orden,s.NumeroSensor",c){CommandTimeout=15})
             }
             rows.Add(row);
         }
-        bool truncated=rows.Count>MaxRows;if(truncated) rows.RemoveAt(rows.Count-1);
+        bool truncated=rows.Count>maxRows;if(truncated) rows.RemoveAt(rows.Count-1);
         rows.Reverse();
-        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?$" Se muestran/exportan las {MaxRows:N0} lecturas más recientes del periodo: reduce el rango si requieres mayor detalle.":""),goesSchedule);
+        return new(p.Key,window,columns,rows,series,truncated,"Datos consultados en PostgreSQL/Timescale. El tipo de gráfica, nombre y unidad proceden del catálogo de sensores en DB_ATLAS. Fechas en UTC. Resúmenes y acumulados son productos almacenados, no recalculados ni certificados. Solo se incluyen periodos completos dentro del rango. Sin registros no significa valor cero."+(truncated?$" Se muestran/exportan las {maxRows:N0} lecturas más recientes del periodo: reduce el rango si requieres mayor detalle.":""),goesSchedule);
     }
     public async Task<SaasUser?> FindSaasUserByEmail(string email, CancellationToken ct = default)
     {
@@ -1391,13 +1390,14 @@ public sealed class ExploreController(IConsultationRepository repository,Visitor
         {
             var auth=User.Identity?.IsAuthenticated==true;
             var window=QueryWindow.Create(start,end,auth,clock.GetUtcNow());
-            var data=await repository.Query(stationId,p,window,HttpContext.RequestAborted);
+            int limit = csv ? 100000 : 50000;
+            var data=await repository.Query(stationId,p,window,HttpContext.RequestAborted,null,null,limit);
             await visitors.Record(csv?"exports":"queries",auth);
             if(!csv) return Json(data);
             var text=new StringBuilder();text.AppendLine(string.Join(',',data.Columns.Select(Csv)));
             foreach(var row in data.Rows) text.AppendLine(string.Join(',',data.Columns.Select(k=>Csv(row[k]))));
             if(data.Truncated) Response.Headers["X-HydroCloud-Truncated"]="true";
-            return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text.ToString())).ToArray(),"text/csv; charset=utf-8",$"hydrocloud-{p.Key}{(data.Truncated?"-PARCIAL-10000":"")}.csv");
+            return File(Encoding.UTF8.GetPreamble().Concat(Encoding.UTF8.GetBytes(text.ToString())).ToArray(),"text/csv; charset=utf-8",$"hydrocloud-{p.Key}{(data.Truncated?$"-PARCIAL-{data.Rows.Count}":"")}.csv");
         }
         catch(ArgumentException e) {return BadRequest(new{error=e.Message});}
         catch(SqlException e) {log.LogWarning("Consulta de catálogo DB_ATLAS fallida: código {Code}",e.Number);return StatusCode(503,new{error="No fue posible consultar el catálogo de estaciones."});}

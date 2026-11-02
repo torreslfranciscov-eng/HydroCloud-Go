@@ -1218,7 +1218,7 @@
   $('query-export').addEventListener('click',async()=>{
     if(!lastQuery)return;$('query-export').disabled=true;
     try{const response=await fetch('/Explore/Export?'+lastQuery);if(!response.ok){let data=await response.json();throw Error(data.error||'No se pudo exportar.');}
-      const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download='hydrocloud-'+result.product+(response.headers.get('X-HydroCloud-Truncated')?'‑PARCIAL‑10000':'')+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      const url=URL.createObjectURL(await response.blob()),link=document.createElement('a');link.href=url;link.download='hydrocloud-'+result.product+(response.headers.get('X-HydroCloud-Truncated')?'‑PARCIAL':'')+'.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     }catch(error){show(error.message,true);}finally{$('query-export').disabled=false;}
   });
   function renderTable(){const table=document.createElement('table');table.className='cyber-table';const head=document.createElement('thead'),tr=document.createElement('tr');for(const col of result.columns){const th=document.createElement('th');th.textContent=col;tr.append(th);}head.append(tr);table.append(head);const body=document.createElement('tbody');for(const row of result.rows){const tr=document.createElement('tr');for(const col of result.columns){const td=document.createElement('td');td.textContent=row[col]??'—';tr.append(td);}body.append(tr);}table.append(body);$('result-table').replaceChildren(table);}
@@ -1868,7 +1868,7 @@
       legend:{enabled:false},xAxis:{type:'datetime',lineColor:'#b7c9cd',tickColor:'#b7c9cd',labels:{style:{color:'#526c74'}},crosshair:{color:'#78949b',dashStyle:'ShortDot'},ordinal:false},
       yAxis:chartAxes,
       tooltip:{shared:chartMode==='combine'||showRainAccumulation,xDateFormat:'%e %b %Y, %H:%M UTC',valueDecimals:2,split:false,backgroundColor:'rgba(255,255,255,.98)',borderColor:'#87adb6',borderWidth:1,shadow:true,style:{color:'#18323b',fontSize:'12px'}},
-      plotOptions:{series:{animation:false,dataGrouping:{enabled:false},turboThreshold:5000,connectNulls:false,states:{inactive:{opacity:.35},hover:{lineWidthPlus:1}}},column:{pointPadding:.04,groupPadding:.08,borderWidth:0,borderRadius:1,minPointLength:1},area:{fillOpacity:.08},areaspline:{fillOpacity:.08}},
+      plotOptions:{series:{animation:false,dataGrouping:{enabled:true,forced:false,approximation:primary.kind==='rain'?'sum':'average',units:[['minute',[10,15,30]],['hour',[1,2,4,6,12]],['day',[1]]]},turboThreshold:0,connectNulls:false,states:{inactive:{opacity:.35},hover:{lineWidthPlus:1}}},column:{pointPadding:.04,groupPadding:.08,borderWidth:0,borderRadius:1,minPointLength:1},area:{fillOpacity:.08},areaspline:{fillOpacity:.08}},
       series:chartSeries
     });
     $('chart-summary').textContent=(showRainAccumulation?'Hietograma + acumulado del periodo':isSingle?primary.label:'Comparación de '+groups.length+' series')+' · '+metric+' · representación configurada en DB_ATLAS · zoom y navegador Highstock.';
