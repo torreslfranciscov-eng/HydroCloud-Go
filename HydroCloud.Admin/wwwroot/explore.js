@@ -1332,11 +1332,49 @@
     draw();
   }
 
-  function extractStationWindData(metric, timeCol) {
+  function extractStationWindData(groups, metric, timeCol) {
     if (!result || !result.rows) return null;
-    const dirRows = result.rows.filter(r => /direccion.*(viento|rafaga)|rumbo/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
-    const speedRows = result.rows.filter(r => /velocidad.*viento|viento\b/i.test(r.VARIABLE || '') && !/rafaga/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
-    const gustRows = result.rows.filter(r => /rafaga/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
+
+    const activeDirGroup = (groups || []).find(g => g.profile.kind === 'direction');
+    const activeSpeedGroup = (groups || []).find(g => g.profile.kind === 'wind' || g.profile.kind === 'gust');
+
+    const isGust = (activeDirGroup && /rafaga/.test(normalized(activeDirGroup.catalog.name))) ||
+                   (activeSpeedGroup && activeSpeedGroup.profile.kind === 'gust');
+
+    const isDirRow = r => {
+      const v = normalized(r.VARIABLE || '');
+      return /direccion.*(viento|rafaga)|rumbo/.test(v) && typeof r[metric] === 'number';
+    };
+    const isSpeedRow = r => {
+      const v = normalized(r.VARIABLE || '');
+      return /velocidad.*viento|viento\b/.test(v) && !/rafaga/.test(v) && typeof r[metric] === 'number';
+    };
+    const isGustSpeedRow = r => {
+      const v = normalized(r.VARIABLE || '');
+      return /velocidad.*rafaga|rafaga/.test(v) && typeof r[metric] === 'number';
+    };
+
+    let dirRows = [];
+    if (activeDirGroup) {
+      const activeSensorId = String(activeDirGroup.catalog.sensorId).trim();
+      dirRows = result.rows.filter(r => String(r.SENSOR_ID).trim() === activeSensorId && typeof r[metric] === 'number');
+    }
+    if (!dirRows.length) {
+      dirRows = result.rows.filter(isDirRow);
+    }
+
+    let speedRows = [];
+    if (activeSpeedGroup) {
+      const activeSensorId = String(activeSpeedGroup.catalog.sensorId).trim();
+      speedRows = result.rows.filter(r => String(r.SENSOR_ID).trim() === activeSensorId && typeof r[metric] === 'number');
+    }
+    if (!speedRows.length) {
+      if (isGust) speedRows = result.rows.filter(isGustSpeedRow);
+      if (!speedRows.length) speedRows = result.rows.filter(isSpeedRow);
+      if (!speedRows.length && !isGust) speedRows = result.rows.filter(isGustSpeedRow);
+    }
+
+    const gustRows = result.rows.filter(isGustSpeedRow);
 
     if (!dirRows.length && !speedRows.length) return null;
 
@@ -1363,8 +1401,20 @@
       timeMap.set(t, entry);
     }
 
+    const sortedDirEntries = Array.from(timeMap.values()).filter(e => e.dir != null).sort((a, b) => a.t - b.t);
+    const sortedSpeedEntries = Array.from(timeMap.values()).filter(e => e.speed != null).sort((a, b) => a.t - b.t);
+
+    if (sortedDirEntries.length && sortedSpeedEntries.length) {
+      for (const dEntry of sortedDirEntries) {
+        if (dEntry.speed == null) {
+          const nearest = sortedSpeedEntries.find(s => Math.abs(s.t - dEntry.t) <= 30 * 60 * 1000);
+          if (nearest) dEntry.speed = nearest.speed;
+        }
+      }
+    }
+
     const paired = Array.from(timeMap.values()).sort((a, b) => a.t - b.t);
-    const speedUnit = (result.series || []).find(s => /velocidad|viento/i.test(s.name))?.unit || 'km/h';
+    const speedUnit = (result.series || []).find(s => /velocidad|viento|rafaga/i.test(normalized(s.name)))?.unit || 'km/h';
     return {
       paired,
       hasSpeed: speedRows.length > 0,
@@ -1730,7 +1780,7 @@
       windViewMode = 'timeseries';
     }
 
-    const windData = isWindSelected ? extractStationWindData(metric, time) : null;
+    const windData = isWindSelected ? extractStationWindData(groups, metric, time) : null;
 
     // View mode branching
     if (isWindSelected && windViewMode === 'hud' && windData) {
