@@ -1537,7 +1537,7 @@ def load_sensores_from_sql():
                 s.numerosensor,
                 ts.nombre AS sensor,
                 COALESCE(s.puntodecimal, 2) AS puntodecimal,
-                s.periodomuestra,
+                COALESCE(s.periodomuestra, 60) AS periodomuestra,
                 s.valorminimo,
                 s.valormaximo,
                 COALESCE(
@@ -1575,8 +1575,8 @@ def load_sensores_from_sql():
                 sensores_por_estacion[id_asignado].append({
                     "numero_sensor": num_s,
                     "nombre": str(r[2]),
-                    "decimales": int(r[3]),
-                    "periodo": int(float(r[4])),
+                    "decimales": int(r[3]) if r[3] is not None else 2,
+                    "periodo": int(float(r[4])) if r[4] is not None else 60,
                     "valor_minimo": float(r[5]) if r[5] is not None else -1000.0,
                     "valor_maximo": float(r[6]) if r[6] is not None else 1000.0,
                     "valor_cota": float(valor_cota),
