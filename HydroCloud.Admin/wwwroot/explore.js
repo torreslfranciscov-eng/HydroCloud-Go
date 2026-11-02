@@ -1276,44 +1276,593 @@
     return profile;
   }
   function medianInterval(points){const gaps=points.slice(1).map((point,index)=>point.t-points[index].t).filter(gap=>gap>0);if(!gaps.length)return undefined;gaps.sort((a,b)=>a-b);return gaps[Math.floor(gaps.length/2)];}
-  const compass=value=>['N','E','S','O','N'][Math.max(0,Math.min(4,Math.round(Number(value)/90)))];
-  function draw(){const container=$('series-chart');const legend=$('chart-legend');legend.replaceChildren();const metric=$('chart-metric').value||result.columns.find(column=>result.rows.some(row=>typeof row[column]==='number')),time=result.columns[0];
-    const activeSeries=selectedSeries.length?selectedSeries:availableSeries.slice(0,1);
-    const groups=activeSeries.map((key,index)=>{const catalog=seriesCatalog(key),shape=highstockType(catalog.configuredChartType),profile=chartProfile(catalog,shape);return{key,catalog,shape,profile,color:chartMode==='single'?profile.color:chartColors[index%chartColors.length],points:result.rows.filter(r=>seriesKey(r)===key&&typeof r[metric]==='number'&&Number.isFinite(Date.parse(r[time]))).map(r=>({t:Date.parse(r[time]),v:r[metric]})).sort((a,b)=>a.t-b.t)};});
-    const points=groups.flatMap(group=>group.points);
-    for(const group of groups){const item=document.createElement('span'),dot=document.createElement('i'),label=document.createElement('span');if(dot.style?.setProperty)dot.style.setProperty('--series-color',group.color);label.textContent=group.profile.label+' · '+group.catalog.sensorId+' · '+group.catalog.name+(group.catalog.unit?' ('+group.catalog.unit+')':'');item.append(dot,label);legend.append(item);}
-    if(!points.length){
-      if(stockChart){stockChart.destroy();stockChart=null;}container.replaceChildren();
-      $('chart-summary').textContent='No hay valores numéricos para graficar. Revisa la tabla; ausencia de datos no significa cero.';
-      if($('kpi-total-obs')) $('kpi-total-obs').textContent = '0';
-      if($('kpi-min-val')) $('kpi-min-val').textContent = '—';
-      if($('kpi-avg-val')) $('kpi-avg-val').textContent = '—';
-      if($('kpi-max-val')) $('kpi-max-val').textContent = '—';
-      if($('kpi-sum-val')) $('kpi-sum-val').textContent = '—';
+  const CARDINAL_16 = [
+    { code: 'N', name: 'Norte', deg: 0 },
+    { code: 'NNE', name: 'Nor-Noreste', deg: 22.5 },
+    { code: 'NE', name: 'Noreste', deg: 45 },
+    { code: 'ENE', name: 'Este-Noreste', deg: 67.5 },
+    { code: 'E', name: 'Este', deg: 90 },
+    { code: 'ESE', name: 'Este-Sureste', deg: 112.5 },
+    { code: 'SE', name: 'Sureste', deg: 135 },
+    { code: 'SSE', name: 'Sur-Sureste', deg: 157.5 },
+    { code: 'S', name: 'Sur', deg: 180 },
+    { code: 'SSO', name: 'Sur-Suroeste', deg: 202.5 },
+    { code: 'SO', name: 'Suroeste', deg: 225 },
+    { code: 'OSO', name: 'Oeste-Suroeste', deg: 247.5 },
+    { code: 'O', name: 'Oeste', deg: 270 },
+    { code: 'ONO', name: 'Oeste-Noroeste', deg: 292.5 },
+    { code: 'NO', name: 'Noroeste', deg: 315 },
+    { code: 'NNO', name: 'Nor-Noroeste', deg: 337.5 }
+  ];
+  function getCardinal16(deg) {
+    if (deg == null || !Number.isFinite(deg)) return { code: '—', name: 'Indeterminado', deg: 0 };
+    const d = ((deg % 360) + 360) % 360;
+    const idx = Math.floor(((d + 11.25) % 360) / 22.5);
+    return CARDINAL_16[idx % 16];
+  }
+  function circularVectorMean(angles) {
+    if (!angles || !angles.length) return { deg: 0, cardinal: getCardinal16(0), consistency: 0 };
+    let sumSin = 0, sumCos = 0, count = 0;
+    for (const a of angles) {
+      if (a != null && Number.isFinite(a)) {
+        const rad = (a * Math.PI) / 180;
+        sumSin += Math.sin(rad);
+        sumCos += Math.cos(rad);
+        count++;
+      }
+    }
+    if (!count) return { deg: 0, cardinal: getCardinal16(0), consistency: 0 };
+    const r = Math.sqrt(sumSin * sumSin + sumCos * sumCos) / count;
+    let meanRad = Math.atan2(sumSin, sumCos);
+    let meanDeg = ((meanRad * 180) / Math.PI + 360) % 360;
+    return { deg: meanDeg, cardinal: getCardinal16(meanDeg), consistency: Math.round(r * 100) };
+  }
+
+  let windViewMode = 'timeseries';
+  $('wind-mode-timeseries')?.addEventListener('click', () => setWindViewMode('timeseries'));
+  $('wind-mode-rose')?.addEventListener('click', () => setWindViewMode('rose'));
+  $('wind-mode-hud')?.addEventListener('click', () => setWindViewMode('hud'));
+
+  function setWindViewMode(mode) {
+    windViewMode = mode;
+    ['timeseries', 'rose', 'hud'].forEach(m => {
+      const btn = $('wind-mode-' + m);
+      if (btn) btn.classList.toggle('active', m === mode);
+    });
+    draw();
+  }
+
+  function extractStationWindData(metric, timeCol) {
+    if (!result || !result.rows) return null;
+    const dirRows = result.rows.filter(r => /direccion.*(viento|rafaga)|rumbo/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
+    const speedRows = result.rows.filter(r => /velocidad.*viento|viento\b/i.test(r.VARIABLE || '') && !/rafaga/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
+    const gustRows = result.rows.filter(r => /rafaga/i.test(r.VARIABLE || '') && typeof r[metric] === 'number');
+
+    if (!dirRows.length && !speedRows.length) return null;
+
+    const timeMap = new Map();
+    for (const r of dirRows) {
+      const t = Date.parse(r[timeCol]);
+      if (!Number.isFinite(t)) continue;
+      const entry = timeMap.get(t) || { t };
+      entry.dir = r[metric];
+      timeMap.set(t, entry);
+    }
+    for (const r of speedRows) {
+      const t = Date.parse(r[timeCol]);
+      if (!Number.isFinite(t)) continue;
+      const entry = timeMap.get(t) || { t };
+      entry.speed = r[metric];
+      timeMap.set(t, entry);
+    }
+    for (const r of gustRows) {
+      const t = Date.parse(r[timeCol]);
+      if (!Number.isFinite(t)) continue;
+      const entry = timeMap.get(t) || { t };
+      entry.gust = r[metric];
+      timeMap.set(t, entry);
+    }
+
+    const paired = Array.from(timeMap.values()).sort((a, b) => a.t - b.t);
+    const speedUnit = (result.series || []).find(s => /velocidad|viento/i.test(s.name))?.unit || 'km/h';
+    return {
+      paired,
+      hasSpeed: speedRows.length > 0,
+      hasDir: dirRows.length > 0,
+      hasGust: gustRows.length > 0,
+      speedUnit,
+      dirUnit: '°'
+    };
+  }
+
+  function renderWindRose(windData, container) {
+    if (!windData || !windData.paired.length) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;">No hay datos de viento para calcular la rosa.</div>';
       return;
     }
-    const vals=points.map(p=>p.v);
-    const min=Math.min(...vals),max=Math.max(...vals),sum=vals.reduce((a,b)=>a+b,0),avg=sum/vals.length;
-    if($('kpi-total-obs')) $('kpi-total-obs').textContent = points.length.toLocaleString();
-    if($('kpi-min-val')) $('kpi-min-val').textContent = min.toFixed(2);
-    if($('kpi-avg-val')) $('kpi-avg-val').textContent = avg.toFixed(2);
-    if($('kpi-max-val')) $('kpi-max-val').textContent = max.toFixed(2);
-    if($('kpi-sum-val')) $('kpi-sum-val').textContent = sum.toFixed(2);
+    const pairs = windData.paired.filter(p => p.dir != null && Number.isFinite(p.dir));
+    const total = pairs.length;
+    if (!total) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;">No hay registros de dirección de viento válidos.</div>';
+      return;
+    }
+
+    const isMs = /m\/s/i.test(windData.speedUnit);
+    const speedBins = isMs ? [
+      { label: '< 1.5 m/s (Calma)', min: 0, max: 1.5, color: '#94a3b8' },
+      { label: '1.5 - 3.5 m/s (Brisa leve)', min: 1.5, max: 3.5, color: '#38bdf8' },
+      { label: '3.5 - 6.0 m/s (Moderado)', min: 3.5, max: 6.0, color: '#10b981' },
+      { label: '6.0 - 9.0 m/s (Fresco/Fuerte)', min: 6.0, max: 9.0, color: '#f59e0b' },
+      { label: '> 9.0 m/s (Temporal/Racha)', min: 9.0, max: Infinity, color: '#ef4444' }
+    ] : [
+      { label: '< 5 km/h (Calma)', min: 0, max: 5, color: '#94a3b8' },
+      { label: '5 - 15 km/h (Brisa leve)', min: 5, max: 15, color: '#38bdf8' },
+      { label: '15 - 25 km/h (Moderado)', min: 15, max: 25, color: '#10b981' },
+      { label: '25 - 40 km/h (Fresco/Fuerte)', min: 25, max: 40, color: '#f59e0b' },
+      { label: '> 40 km/h (Temporal/Racha)', min: 40, max: Infinity, color: '#ef4444' }
+    ];
+
+    const sectorCounts = Array.from({ length: 16 }, () => Array(speedBins.length).fill(0));
+    let calmCount = 0;
+
+    for (const p of pairs) {
+      const spd = p.speed != null && Number.isFinite(p.speed) ? p.speed : 10;
+      if (p.speed != null && p.speed < (isMs ? 0.5 : 1.5)) {
+        calmCount++;
+      }
+      const sIdx = Math.floor((((p.dir % 360) + 11.25) % 360) / 22.5);
+      let bIdx = speedBins.findIndex(b => spd >= b.min && spd < b.max);
+      if (bIdx === -1) bIdx = speedBins.length - 1;
+      sectorCounts[sIdx][bIdx]++;
+    }
+
+    const series = speedBins.map((bin, bIdx) => ({
+      name: bin.label,
+      color: bin.color,
+      data: sectorCounts.map(counts => Number(((counts[bIdx] / total) * 100).toFixed(2)))
+    }));
+
+    const categories = CARDINAL_16.map(c => c.code);
+
+    if (stockChart) { stockChart.destroy(); stockChart = null; }
+
+    stockChart = window.Highcharts.chart(container, {
+      chart: {
+        polar: true,
+        type: 'column',
+        backgroundColor: '#ffffff',
+        spacing: [8, 8, 8, 8],
+        style: { fontFamily: 'Outfit, Segoe UI, sans-serif' }
+      },
+      title: { text: null },
+      credits: { enabled: true, text: 'HydroCloud · Rosa de los Vientos WMO Polar' },
+      pane: { size: '82%' },
+      xAxis: {
+        categories: categories,
+        tickmarkPlacement: 'on',
+        lineWidth: 0,
+        labels: {
+          style: { fontWeight: '750', color: '#1e3a47', fontSize: '11px' }
+        }
+      },
+      yAxis: {
+        min: 0,
+        endOnTick: false,
+        showLastLabel: true,
+        title: { text: 'Frecuencia (%)', style: { color: '#64748b', fontSize: '10px' } },
+        labels: {
+          formatter: function() { return this.value + '%'; },
+          style: { color: '#64748b', fontSize: '10px' }
+        },
+        reversedStacks: false
+      },
+      tooltip: {
+        shared: true,
+        valueSuffix: '%',
+        formatter: function() {
+          const sector = CARDINAL_16[this.x];
+          let s = '<b>Rumbo ' + sector.code + ' (' + sector.name + ' · ' + sector.deg + '°)</b><br/>';
+          let sum = 0;
+          this.points.forEach(p => {
+            if (p.y > 0) {
+              s += '<span style="color:' + p.color + '">\u25CF</span> ' + p.series.name + ': <b>' + p.y + '%</b><br/>';
+              sum += p.y;
+            }
+          });
+          s += '<b>Total sector: ' + sum.toFixed(1) + '%</b>';
+          return s;
+        }
+      },
+      plotOptions: {
+        series: {
+          stacking: 'normal',
+          shadow: false,
+          groupPadding: 0,
+          pointPlacement: 'on'
+        },
+        column: {
+          pointPadding: 0.05,
+          borderWidth: 0.5,
+          borderColor: '#ffffff'
+        }
+      },
+      legend: {
+        align: 'right',
+        verticalAlign: 'top',
+        y: 20,
+        layout: 'vertical',
+        itemStyle: { fontSize: '11px', color: '#334155', fontWeight: '600' }
+      },
+      series: series
+    });
+
+    const totalBySector = sectorCounts.map(arr => arr.reduce((a, b) => a + b, 0));
+    const maxSectorIdx = totalBySector.indexOf(Math.max(...totalBySector));
+    const domSector = CARDINAL_16[maxSectorIdx];
+    const domPct = ((totalBySector[maxSectorIdx] / total) * 100).toFixed(1);
+    const calmPct = ((calmCount / total) * 100).toFixed(1);
+
+    $('chart-summary').textContent = '🧭 Rosa de los Vientos Polar · ' + total.toLocaleString() + ' observaciones · Rumbo predominante: ' + domSector.name + ' (' + domSector.code + ' ' + domSector.deg + '°) con ' + domPct + '% · Calmas: ' + calmPct + '%';
+  }
+
+  function renderWindHud(windData, container) {
+    if (!windData || !windData.paired.length) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;">No hay datos de viento disponibles.</div>';
+      return;
+    }
+    const pairs = windData.paired.filter(p => p.dir != null && Number.isFinite(p.dir));
+    const total = pairs.length;
+    if (!total) {
+      container.innerHTML = '<div style="padding:40px;text-align:center;color:#64748b;">No hay observaciones de dirección válidas.</div>';
+      return;
+    }
+
+    const angles = pairs.map(p => p.dir);
+    const circ = circularVectorMean(angles);
+    const latest = pairs[pairs.length - 1];
+    const latestDir = latest.dir;
+    const latestCard = getCardinal16(latestDir);
+    const latestSpeed = latest.speed != null ? latest.speed.toFixed(1) + ' ' + windData.speedUnit : '—';
+
+    const speeds = pairs.filter(p => p.speed != null && Number.isFinite(p.speed)).map(p => p.speed);
+    const avgSpeed = speeds.length ? (speeds.reduce((a, b) => a + b, 0) / speeds.length).toFixed(1) : '—';
+    const maxSpeed = speeds.length ? Math.max(...speeds).toFixed(1) : '—';
+
+    const gusts = pairs.filter(p => p.gust != null && Number.isFinite(p.gust)).map(p => p.gust);
+    const maxGust = gusts.length ? Math.max(...gusts).toFixed(1) : (maxSpeed !== '—' ? maxSpeed : '—');
+
+    const sectorCounts = Array(16).fill(0);
+    let calmCount = 0;
+    for (const p of pairs) {
+      const sIdx = Math.floor((((p.dir % 360) + 11.25) % 360) / 22.5);
+      sectorCounts[sIdx]++;
+      if (p.speed != null && p.speed < (/m\/s/i.test(windData.speedUnit) ? 0.5 : 1.5)) calmCount++;
+    }
+    const maxSecIdx = sectorCounts.indexOf(Math.max(...sectorCounts));
+    const domSector = CARDINAL_16[maxSecIdx];
+    const domPct = ((sectorCounts[maxSecIdx] / total) * 100).toFixed(1);
+    const calmPct = ((calmCount / total) * 100).toFixed(1);
+
+    const compassSvg = `
+      <svg class="wind-compass-svg" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="compassGrad" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="85%" stop-color="#f8fafc"/>
+            <stop offset="100%" stop-color="#e2e8f0"/>
+          </radialGradient>
+          <filter id="needleShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.3"/>
+          </filter>
+        </defs>
+        <circle cx="120" cy="120" r="112" fill="url(#compassGrad)" stroke="#087f9a" stroke-width="3"/>
+        <circle cx="120" cy="120" r="105" fill="none" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="2,3"/>
+        <circle cx="120" cy="120" r="82" fill="none" stroke="#e2e8f0" stroke-width="1"/>
+        ${CARDINAL_16.map((c, i) => {
+          const rad = (c.deg - 90) * Math.PI / 180;
+          const x1 = 120 + 94 * Math.cos(rad);
+          const y1 = 120 + 94 * Math.sin(rad);
+          const x2 = 120 + 104 * Math.cos(rad);
+          const y2 = 120 + 104 * Math.sin(rad);
+          const isMajor = i % 4 === 0;
+          const isSub = i % 2 === 0;
+          const lx = 120 + (isMajor ? 70 : 73) * Math.cos(rad);
+          const ly = 120 + (isMajor ? 70 : 73) * Math.sin(rad) + 4;
+          const textTag = (isSub) ? `<text x="${lx}" y="${ly}" font-size="${isMajor ? 12 : 9}" font-weight="${isMajor ? '800' : '600'}" fill="${isMajor ? (c.code === 'N' ? '#ef4444' : '#0f172a') : '#64748b'}" text-anchor="middle">${c.code}</text>` : '';
+          return `
+            <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${isMajor ? '#0f172a' : '#94a3b8'}" stroke-width="${isMajor ? 2.5 : 1}"/>
+            ${textTag}
+          `;
+        }).join('')}
+        <text x="120" y="24" font-size="8" font-weight="700" fill="#ef4444" text-anchor="middle">0°</text>
+        <text x="222" y="123" font-size="8" font-weight="700" fill="#64748b" text-anchor="middle">90°</text>
+        <text x="120" y="222" font-size="8" font-weight="700" fill="#64748b" text-anchor="middle">180°</text>
+        <text x="18" y="123" font-size="8" font-weight="700" fill="#64748b" text-anchor="middle">270°</text>
+        <g transform="rotate(${latestDir}, 120, 120)" filter="url(#needleShadow)">
+          <polygon points="120,38 126,115 114,115" fill="#ef4444"/>
+          <polygon points="120,202 126,125 114,125" fill="#3b82f6"/>
+          <circle cx="120" cy="120" r="9" fill="#0f172a" stroke="#ffffff" stroke-width="2"/>
+          <circle cx="120" cy="120" r="3" fill="#38bdf8"/>
+        </g>
+      </svg>
+    `;
+
+    container.innerHTML = `
+      <div class="wind-compass-wrapper">
+        ${compassSvg}
+        <div class="wind-compass-center-label">
+          <div class="deg">${latestDir.toFixed(1)}°</div>
+          <div class="cardinal">${latestCard.name} (${latestCard.code}) · ${latestSpeed}</div>
+        </div>
+      </div>
+      <div class="wind-metrics-grid">
+        <div class="wind-stat-card highlight">
+          <span class="card-label">Rumbo Medio Vectorial</span>
+          <span class="card-value">${circ.deg.toFixed(1)}°</span>
+          <span class="card-sub">${circ.cardinal.name} (${circ.cardinal.code}) · Coherencia: ${circ.consistency}%</span>
+        </div>
+        <div class="wind-stat-card highlight">
+          <span class="card-label">Sector Predominante</span>
+          <span class="card-value">${domSector.code} (${domSector.deg}°)</span>
+          <span class="card-sub">${domSector.name} · ${domPct}% de los registros</span>
+        </div>
+        <div class="wind-stat-card success">
+          <span class="card-label">Velocidad Media</span>
+          <span class="card-value">${avgSpeed} <small style="font-size:0.75rem;">${windData.speedUnit}</small></span>
+          <span class="card-sub">Régimen anemométrico de la serie</span>
+        </div>
+        <div class="wind-stat-card accent">
+          <span class="card-label">Ráfaga Máxima</span>
+          <span class="card-value">${maxGust} <small style="font-size:0.75rem;">${windData.speedUnit}</small></span>
+          <span class="card-sub">Pico registrado en el periodo</span>
+        </div>
+        <div class="wind-stat-card">
+          <span class="card-label">Índice de Calma</span>
+          <span class="card-value">${calmPct}%</span>
+          <span class="card-sub">${calmCount} lecturas &lt; ${/m\/s/i.test(windData.speedUnit) ? '0.5 m/s' : '1.5 km/h'}</span>
+        </div>
+        <div class="wind-stat-card">
+          <span class="card-label">Total Observaciones</span>
+          <span class="card-value">${total.toLocaleString()}</span>
+          <span class="card-sub">Muestras analizadas en periodo</span>
+        </div>
+      </div>
+    `;
+
+    $('chart-summary').textContent = '🧭 Tablero Anemométrico & Climatología · Rumbo actual: ' + latestDir.toFixed(1) + '° (' + latestCard.code + ') · Rumbo medio: ' + circ.deg.toFixed(1) + '° · Predominante: ' + domSector.code + ' (' + domPct + '%)';
+  }
+
+  function updateKpis(points, primary, groups, windData) {
+    if (!points.length) {
+      if ($('kpi-total-obs')) $('kpi-total-obs').textContent = '0';
+      if ($('kpi-min-val')) $('kpi-min-val').textContent = '—';
+      if ($('kpi-avg-val')) $('kpi-avg-val').textContent = '—';
+      if ($('kpi-max-val')) $('kpi-max-val').textContent = '—';
+      if ($('kpi-sum-val')) $('kpi-sum-val').textContent = '—';
+      return;
+    }
+    const vals = points.map(p => p.v);
+    const min = Math.min(...vals), max = Math.max(...vals), sum = vals.reduce((a, b) => a + b, 0);
+
+    if ($('kpi-total-obs')) $('kpi-total-obs').textContent = points.length.toLocaleString();
+
+    const sumBox = $('kpi-sum-box');
+    const domBox = $('kpi-wind-dom-box');
+    const calmBox = $('kpi-wind-calm-box');
+    const lblMin = $('kpi-lbl-min');
+    const lblAvg = $('kpi-lbl-avg');
+    const lblMax = $('kpi-lbl-max');
+
+    if (primary && primary.kind === 'direction') {
+      const circ = circularVectorMean(vals);
+      const minCard = getCardinal16(min);
+      const maxCard = getCardinal16(max);
+
+      if (lblMin) lblMin.textContent = 'Rango Mín';
+      if ($('kpi-min-val')) $('kpi-min-val').textContent = min.toFixed(0) + '° (' + minCard.code + ')';
+
+      if (lblAvg) lblAvg.textContent = 'Rumbo Vectorial';
+      if ($('kpi-avg-val')) $('kpi-avg-val').textContent = circ.deg.toFixed(1) + '° (' + circ.cardinal.code + ')';
+
+      if (lblMax) lblMax.textContent = 'Rango Máx';
+      if ($('kpi-max-val')) $('kpi-max-val').textContent = max.toFixed(0) + '° (' + maxCard.code + ')';
+
+      if (sumBox) sumBox.style.display = 'none';
+
+      const sectorCounts = Array(16).fill(0);
+      for (const a of vals) {
+        const sIdx = Math.floor((((a % 360) + 11.25) % 360) / 22.5);
+        sectorCounts[sIdx]++;
+      }
+      const maxSecIdx = sectorCounts.indexOf(Math.max(...sectorCounts));
+      const domSector = CARDINAL_16[maxSecIdx];
+      const domPct = ((sectorCounts[maxSecIdx] / vals.length) * 100).toFixed(1);
+
+      if (domBox) {
+        domBox.style.display = 'flex';
+        $('kpi-wind-dom-val').textContent = domSector.code + ' · ' + domPct + '%';
+      }
+
+      if (calmBox && windData && windData.paired.length) {
+        calmBox.style.display = 'flex';
+        const isMs = /m\/s/i.test(windData.speedUnit);
+        const calms = windData.paired.filter(p => p.speed != null && p.speed < (isMs ? 0.5 : 1.5)).length;
+        const calmPct = ((calms / windData.paired.length) * 100).toFixed(1);
+        $('kpi-wind-calm-val').textContent = calmPct + '%';
+      } else if (calmBox) {
+        calmBox.style.display = 'none';
+      }
+    } else {
+      if (lblMin) lblMin.textContent = 'Mínimo';
+      if (lblAvg) lblAvg.textContent = 'Promedio';
+      if (lblMax) lblMax.textContent = 'Máximo';
+      if ($('kpi-min-val')) $('kpi-min-val').textContent = min.toFixed(2);
+      if ($('kpi-avg-val')) $('kpi-avg-val').textContent = (sum / vals.length).toFixed(2);
+      if ($('kpi-max-val')) $('kpi-max-val').textContent = max.toFixed(2);
+
+      if (sumBox) sumBox.style.display = 'flex';
+      if ($('kpi-sum-val')) $('kpi-sum-val').textContent = sum.toFixed(2);
+      if (domBox) domBox.style.display = 'none';
+      if (calmBox) calmBox.style.display = 'none';
+    }
+  }
+
+  function draw(){
+    const container=$('series-chart');
+    const hudContainer=$('wind-hud-container');
+    const legend=$('chart-legend');
+    legend.replaceChildren();
+    const metric=$('chart-metric').value||result.columns.find(column=>result.rows.some(row=>typeof row[column]==='number')),time=result.columns[0];
+    const activeSeries=selectedSeries.length?selectedSeries:availableSeries.slice(0,1);
+    const groups=activeSeries.map((key,index)=>{
+      const catalog=seriesCatalog(key),shape=highstockType(catalog.configuredChartType),profile=chartProfile(catalog,shape);
+      return{key,catalog,shape,profile,color:chartMode==='single'?profile.color:chartColors[index%chartColors.length],points:result.rows.filter(r=>seriesKey(r)===key&&typeof r[metric]==='number'&&Number.isFinite(Date.parse(r[time]))).map(r=>({t:Date.parse(r[time]),v:r[metric]})).sort((a,b)=>a.t-b.t)};
+    });
+    const points=groups.flatMap(group=>group.points);
+
+    // Wind suite toolbar detection
+    const isWindSelected = groups.some(g => g.profile.kind === 'direction' || g.profile.kind === 'wind' || g.profile.kind === 'gust') ||
+      (result && result.rows && result.rows.some(r => /viento|rafaga|rumbo/i.test(r.VARIABLE || '')));
+    const windToolbar = $('wind-toolbar');
+    if (windToolbar) {
+      windToolbar.style.display = isWindSelected ? 'inline-flex' : 'none';
+    }
+    if (!isWindSelected && windViewMode !== 'timeseries') {
+      windViewMode = 'timeseries';
+    }
+
+    const windData = isWindSelected ? extractStationWindData(metric, time) : null;
+
+    // View mode branching
+    if (isWindSelected && windViewMode === 'hud' && windData) {
+      if (container) container.style.display = 'none';
+      if (hudContainer) {
+        hudContainer.style.display = 'flex';
+        renderWindHud(windData, hudContainer);
+      }
+      updateKpis(points, groups[0]?.profile, groups, windData);
+      return;
+    }
+
+    if (hudContainer) hudContainer.style.display = 'none';
+    if (container) container.style.display = 'block';
+
+    if (isWindSelected && windViewMode === 'rose' && windData) {
+      renderWindRose(windData, container);
+      updateKpis(points, groups[0]?.profile, groups, windData);
+      return;
+    }
+
+    // Default: timeseries
+    for(const group of groups){
+      const item=document.createElement('span'),dot=document.createElement('i'),label=document.createElement('span');
+      if(dot.style?.setProperty)dot.style.setProperty('--series-color',group.color);
+      label.textContent=group.profile.label+' · '+group.catalog.sensorId+' · '+group.catalog.name+(group.catalog.unit?' ('+group.catalog.unit+')':'');
+      item.append(dot,label);
+      legend.append(item);
+    }
+
+    if(!points.length){
+      if(stockChart){stockChart.destroy();stockChart=null;}
+      container.replaceChildren();
+      $('chart-summary').textContent='No hay valores numéricos para graficar. Revisa la tabla; ausencia de datos no significa cero.';
+      updateKpis([], null, groups, null);
+      return;
+    }
+
     const primary=groups[0].profile,isSingle=chartMode==='single'&&groups.length===1;
+    updateKpis(points, primary, groups, windData);
+
     const showRainAccumulation=isSingle&&primary.kind==='rain'&&/^(valor|acumulado|acumulado mm|valor medido)$/.test(normalized(metric).replaceAll('_',' '));
     let accumulated=0;
     const accumulatedPoints=showRainAccumulation?groups[0].points.map(point=>[point.t,accumulated+=Math.max(0,point.v)]):[];
-    if(showRainAccumulation){const item=document.createElement('span'),dot=document.createElement('i'),label=document.createElement('span');if(dot.style?.setProperty)dot.style.setProperty('--series-color','#8a6d16');label.textContent='Acumulado del periodo · '+accumulated.toFixed(2)+(groups[0].catalog.unit?' '+groups[0].catalog.unit:'');item.append(dot,label);legend.append(item);}
+    if(showRainAccumulation){
+      const item=document.createElement('span'),dot=document.createElement('i'),label=document.createElement('span');
+      if(dot.style?.setProperty)dot.style.setProperty('--series-color','#8a6d16');
+      label.textContent='Acumulado del periodo · '+accumulated.toFixed(2)+(groups[0].catalog.unit?' '+groups[0].catalog.unit:'');
+      item.append(dot,label);
+      legend.append(item);
+    }
+
     const axisLabels={style:{color:'#526c74'}};
-    if(isSingle&&primary.kind==='direction')axisLabels.formatter=function(){return compass(this.value)+' · '+this.value+'°';};
-    const primaryAxis={opposite:false,min:isSingle?primary.axisMin:null,max:isSingle?primary.axisMax:null,tickInterval:isSingle?primary.tickInterval:null,softMin:isSingle&&primary.axisMin===0?0:undefined,title:{text:isSingle?primary.axisTitle:metric,style:{color:'#526c74',fontWeight:'600'}},gridLineColor:'#e1eaec',gridLineDashStyle:'ShortDot',labels:axisLabels};
+    if(isSingle&&primary.kind==='direction'){
+      axisLabels.formatter=function(){
+        const card = getCardinal16(this.value);
+        return card.code + ' · ' + this.value + '°';
+      };
+    }
+    const primaryAxis={
+      opposite:false,
+      min:isSingle?primary.axisMin:null,
+      max:isSingle?primary.axisMax:null,
+      tickInterval:isSingle?(primary.kind==='direction'?45:primary.tickInterval):null,
+      softMin:isSingle&&primary.axisMin===0?0:undefined,
+      title:{text:isSingle?primary.axisTitle:metric,style:{color:'#526c74',fontWeight:'600'}},
+      gridLineColor:'#e1eaec',
+      gridLineDashStyle:'ShortDot',
+      labels:axisLabels
+    };
     const chartAxes=showRainAccumulation?[primaryAxis,{opposite:true,min:0,softMin:0,title:{text:'Acumulado'+(groups[0].catalog.unit?' ('+groups[0].catalog.unit+')':''),style:{color:'#8a6d16',fontWeight:'600'}},gridLineWidth:0,lineWidth:1,lineColor:'#cfbf87',tickColor:'#cfbf87',labels:{style:{color:'#796623'}}}]:primaryAxis;
-    const chartSeries=groups.map((group,index)=>({id:'sensor-'+group.catalog.sensorId,name:group.profile.label+' · '+group.catalog.name,type:group.profile.type,step:group.profile.step,color:group.color,lineWidth:group.profile.lineWidth,threshold:group.profile.axisMin===0?0:null,softThreshold:group.profile.axisMin===0,pointRange:group.profile.kind==='rain'?medianInterval(group.points):undefined,marker:{enabled:group.profile.marker||group.profile.type==='scatter',radius:group.profile.kind==='direction'?2.5:3,symbol:'circle'},data:group.points.map(point=>[point.t,point.v]),tooltip:{valueDecimals:group.profile.decimals,valueSuffix:group.catalog.unit?' '+group.catalog.unit:''},showInNavigator:index===0}));
-    if(showRainAccumulation)chartSeries.push({id:'rain-accumulated',name:'Acumulado del periodo',type:'line',step:'left',yAxis:1,color:'#8a6d16',lineWidth:2,marker:{enabled:false},data:accumulatedPoints,tooltip:{valueDecimals:2,valueSuffix:groups[0].catalog.unit?' '+groups[0].catalog.unit:''},showInNavigator:false,zIndex:4});
+
+    const chartSeries=groups.map((group,index)=>({
+      id:'sensor-'+group.catalog.sensorId,
+      name:group.profile.label+' · '+group.catalog.name,
+      type:group.profile.type,
+      step:group.profile.step,
+      color:group.color,
+      lineWidth:group.profile.lineWidth,
+      threshold:group.profile.axisMin===0?0:null,
+      softThreshold:group.profile.axisMin===0,
+      pointRange:group.profile.kind==='rain'?medianInterval(group.points):undefined,
+      marker:{enabled:group.profile.marker||group.profile.type==='scatter',radius:group.profile.kind==='direction'?2.5:3,symbol:'circle'},
+      data:group.points.map(point=>[point.t,point.v]),
+      tooltip:{
+        valueDecimals:group.profile.decimals,
+        valueSuffix:group.catalog.unit?' '+group.catalog.unit:'',
+        pointFormatter:group.profile.kind==='direction'?function(){
+          const card=getCardinal16(this.y);
+          return '<span style="color:'+this.color+'">\u25CF</span> '+group.profile.label+': <b>'+this.y+'° ('+card.name+' · '+card.code+')</b><br/>';
+        }:undefined
+      },
+      showInNavigator:index===0
+    }));
+
+    if(showRainAccumulation){
+      chartSeries.push({id:'rain-accumulated',name:'Acumulado del periodo',type:'line',step:'left',yAxis:1,color:'#8a6d16',lineWidth:2,marker:{enabled:false},data:accumulatedPoints,tooltip:{valueDecimals:2,valueSuffix:groups[0].catalog.unit?' '+groups[0].catalog.unit:''},showInNavigator:false,zIndex:4});
+    }
+
+    // Add Wind Barbs overlay if direction is viewed and speed is available
+    if(isSingle && primary.kind === 'direction' && windData && windData.hasSpeed && windData.paired.length){
+      const step = Math.max(1, Math.floor(windData.paired.length / 32));
+      const barbData = windData.paired
+        .filter((p, i) => i % step === 0 && p.dir != null && p.speed != null && Number.isFinite(p.dir) && Number.isFinite(p.speed))
+        .map(p => [p.t, p.speed, p.dir]);
+      if(barbData.length){
+        chartSeries.push({
+          type: 'windbarb',
+          name: 'Barbadas de Viento (OMM)',
+          id: 'wind-barbs',
+          color: '#087f9a',
+          lineWidth: 1.5,
+          vectorLength: 16,
+          yOffset: -18,
+          data: barbData,
+          tooltip: {
+            pointFormatter: function() {
+              const card = getCardinal16(this.direction);
+              return '<span style="color:#087f9a">\u25CF</span> Barbada: <b>' + this.value + ' ' + windData.speedUnit + '</b> (Rumbo ' + this.direction + '° ' + card.code + ')<br/>';
+            }
+          },
+          showInNavigator: false,
+          zIndex: 5
+        });
+      }
+    }
+
     if(stockChart)stockChart.destroy();
     stockChart=window.Highcharts.stockChart(container,{
       chart:{backgroundColor:'#ffffff',plotBackgroundColor:'#ffffff',animation:false,spacing:[4,6,0,6],style:{fontFamily:'Outfit, Segoe UI, sans-serif'}},
-      time:{useUTC:true},title:{text:null},credits:{enabled:true,text:'Highcharts Stock'},
+      time:{useUTC:true},title:{text:null},credits:{enabled:true,text:'HydroCloud Telemetría'},
       rangeSelector:{selected:3,inputEnabled:false,labelStyle:{color:'#18323b',fontSize:'11px',fontWeight:'600'},buttons:[{type:'hour',count:6,text:'6 h'},{type:'day',count:1,text:'24 h'},{type:'day',count:3,text:'3 d'},{type:'all',text:'Todo'}],buttonTheme:{width:34,height:18,fill:'#f4f8f9',stroke:'#c5d7dc','stroke-width':1,r:4,style:{color:'#36525b',fontSize:'10px',fontWeight:'600'},states:{hover:{fill:'#e4f1f4',style:{color:'#075f73'}},select:{fill:'#087f9a',style:{color:'#ffffff'}},disabled:{fill:'#f4f6f7',style:{color:'#9aabb0'}}}}},
       navigator:{enabled:true,height:34,margin:5,maskFill:'rgba(8,127,154,.12)',outlineColor:'#a9c0c6',handles:{backgroundColor:'#ffffff',borderColor:'#087f9a'},xAxis:{gridLineColor:'#edf2f3',lineColor:'#b7c9cd',tickColor:'#b7c9cd',labels:{style:{color:'#5b737b',fontSize:'10px'}}},series:{type:'areaspline',color:'#6fa9b5',lineColor:'#6fa9b5',fillColor:'rgba(111,169,181,.16)',fillOpacity:.16}},
       scrollbar:{enabled:true,height:9,barBackgroundColor:'#b7d5db',barBorderColor:'#8eb8c1',buttonBackgroundColor:'#f4f8f9',buttonBorderColor:'#c5d7dc',rifleColor:'#54737b',trackBackgroundColor:'#edf3f4',trackBorderColor:'#d5e2e5'},

@@ -257,6 +257,11 @@
                     <h3>Series de la estación</h3>
                 </div>
                 <div class="chart-controls">
+                    <div id="wind-toolbar" class="wind-toolbar" style="display:none;" role="group" aria-label="Visualización especializada de viento">
+                        <button id="wind-mode-timeseries" type="button" class="btn-wind-mode active" title="Serie temporal con barbadas meteorológicas y ráfagas">📈 Serie & Barbadas</button>
+                        <button id="wind-mode-rose" type="button" class="btn-wind-mode" title="Rosa de los vientos (Distribución polar de frecuencias y velocidades)">🧭 Rosa de Vientos</button>
+                        <button id="wind-mode-hud" type="button" class="btn-wind-mode" title="Brújula anemométrica, rumbo predominante y climatología">🧭 Compás & HUD</button>
+                    </div>
                     <div class="chart-mode" aria-label="Modo de gráfica">
                         <button id="chart-mode-single" type="button" aria-pressed="true">Individual</button>
                         <button id="chart-mode-combine" type="button" aria-pressed="false">Combinar</button>
@@ -270,13 +275,16 @@
             <div id="chart-legend" class="chart-legend" aria-live="polite"></div>
             <div class="chart-canvas">
                 <div id="series-chart" role="region" aria-label="Gráfica temporal interactiva de telemetría"></div>
+                <div id="wind-hud-container" class="wind-hud-container" style="display:none;" role="region" aria-label="Tablero anemométrico y brújula"></div>
             </div>
             <div class="chart-bottom-bar">
-                <div class="kpi-compact"><span>Lecturas</span><b id="kpi-total-obs">—</b></div>
-                <div class="kpi-compact"><span>Mínimo</span><b id="kpi-min-val">—</b></div>
-                <div class="kpi-compact"><span>Promedio</span><b id="kpi-avg-val">—</b></div>
-                <div class="kpi-compact"><span>Máximo</span><b id="kpi-max-val">—</b></div>
-                <div class="kpi-compact"><span>Suma</span><b id="kpi-sum-val">—</b></div>
+                <div class="kpi-compact"><span id="kpi-lbl-obs">Lecturas</span><b id="kpi-total-obs">—</b></div>
+                <div class="kpi-compact"><span id="kpi-lbl-min">Mínimo</span><b id="kpi-min-val">—</b></div>
+                <div class="kpi-compact"><span id="kpi-lbl-avg">Promedio</span><b id="kpi-avg-val">—</b></div>
+                <div class="kpi-compact"><span id="kpi-lbl-max">Máximo</span><b id="kpi-max-val">—</b></div>
+                <div class="kpi-compact" id="kpi-sum-box"><span id="kpi-lbl-sum">Suma</span><b id="kpi-sum-val">—</b></div>
+                <div class="kpi-compact" id="kpi-wind-dom-box" style="display:none;"><span>Predominante</span><b id="kpi-wind-dom-val">—</b></div>
+                <div class="kpi-compact" id="kpi-wind-calm-box" style="display:none;"><span>Calma</span><b id="kpi-wind-calm-val">—</b></div>
                 <p id="chart-summary"></p>
             </div>
         </section>
@@ -1048,6 +1056,8 @@
 <script src="~/vendor/leaflet/leaflet.js" defer></script>
 <script src="~/vendor/animejs/anime-4.5.0.umd.min.js" defer></script>
 <script src="~/vendor/highstock-13.1.1.js" defer></script>
+<script src="~/vendor/highcharts-more.js" defer></script>
+<script src="~/vendor/windbarb.js" defer></script>
 <script src="~/vendor/highstock-accessibility-13.1.1.js" defer></script>
 <script src="~/vendor/three.min.js" defer></script>
 <script src="~/vendor/OrbitControls.js" defer></script>
